@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COVIMT 9 Obra - Acceso Seguro</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Firebase SDKs (Compat v9) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <!-- Importar Configuración -->
+  <script src="firebaseConfig.js"></script>
+  <!-- Importar Lógica (Con Defer para carga diferida) -->
+  <script src="cooperativa.js" defer></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+              900: '#064e3b',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.3s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    #signature-canvas {
+      touch-action: none;
+      cursor: crosshair;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans antialiased text-slate-800 bg-slate-50/50">
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ================= PANTALLA DE LOGIN SEGURO ================= -->
+  <div id="view-login" class="flex-grow flex items-center justify-center p-4 bg-gradient-to-tr from-brand-900 via-brand-800 to-teal-950">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-white/10 p-8 space-y-6">
+      <div class="text-center space-y-2">
+        <div class="bg-brand-50 text-brand-700 p-4 rounded-2xl w-fit mx-auto shadow-inner">
+          <i data-lucide="shield-check" class="w-10 h-10"></i>
+        </div>
+        <h2 class="text-2xl font-bold tracking-tight text-slate-900">COVIMT 9 Obra </h2>
+        <p class="text-xs text-slate-500">Ingresa tus credenciales del portal cooperativo</p>
+      </div>
+
+      <form onsubmit="event.preventDefault(); handleLogin();" class="space-y-4">
+        <div>
+          <label for="login-email" class="block text-xs font-semibold text-slate-500 mb-1">Correo Electrónico</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+              <i data-lucide="mail" class="w-4 h-4"></i>
+            </span>
+            <input type="email" id="login-email" required class="w-full rounded-xl border border-slate-200 pl-10 pr-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="admin@coop.com">
+          </div>
+        </div>
+        <div>
+          <label for="login-password" class="block text-xs font-semibold text-slate-500 mb-1">Contraseña</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+              <i data-lucide="lock" class="w-4 h-4"></i>
+            </span>
+            <input type="password" id="login-password" required class="w-full rounded-xl border border-slate-200 pl-10 pr-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="••••••••">
+          </div>
+        </div>
+        
+        <button type="submit" id="btn-login-submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-3.5 rounded-xl transition shadow-md flex items-center justify-center gap-2 text-sm">
+          <i data-lucide="log-in" class="w-4 h-4"></i> Iniciar Sesión
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= APLICACIÓN PRINCIPAL (OCULTA HASTA LOGIN) ================= -->
+  <div id="app-container" class="hidden h-full flex flex-col overflow-hidden">
+    
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-brand-800 to-brand-600 text-white shadow-md flex-shrink-0">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16">
+          <div class="flex items-center gap-3">
+            <div class="bg-white/10 p-2 rounded-xl">
+              <i data-lucide="cloud" class="h-6 w-6 text-emerald-300"></i>
+            </div>
+            <div>
+              <h1 class="text-lg font-bold tracking-tight leading-none">COVIMT 9 Obra </h1>
+              <p class="text-[10px] text-emerald-200 mt-1">Conectado a Firebase Firestore</p>
+            </div>
+          </div>
+          
+          <!-- Navigation Tabs -->
+          <nav class="hidden md:flex space-x-1" aria-label="Navegación Principal">
+            <button onclick="switchTab('tab-dashboard')" id="btn-tab-dashboard" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-brand-700 flex items-center gap-2">
+              <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard
+            </button>
+            <button onclick="switchTab('tab-socios')" id="btn-tab-socios" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-brand-700 flex items-center gap-2">
+              <i data-lucide="users" class="w-4 h-4"></i> Socios & Núcleos
+            </button>
+            <button onclick="switchTab('tab-asistencia')" id="btn-tab-asistencia" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-brand-700 flex items-center gap-2">
+              <i data-lucide="clock" class="w-4 h-4"></i> Control de Jornada
+            </button>
+            <button onclick="switchTab('tab-planilla')" id="btn-tab-planilla" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-brand-700 flex items-center gap-2">
+              <i data-lucide="calculator" class="w-4 h-4"></i> Planilla Mensual
+            </button>
+            <button onclick="switchTab('tab-reportes')" id="btn-tab-reportes" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-brand-700 flex items-center gap-2">
+              <i data-lucide="file-text" class="w-4 h-4"></i> Historial
+            </button>
+          </nav>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-2">
+            <button onclick="openConfigModal()" class="p-2 hover:bg-brand-700 rounded-lg transition" title="Configurar Objetivo Mensual">
+              <i data-lucide="settings" class="w-5 h-5 text-white"></i>
+            </button>
+            <button id="btn-sync-csv" onclick="sincronizarDesdeCSV()" class="hidden p-2 hover:bg-teal-600/80 rounded-lg text-teal-200 transition" title="Sincronizar datos en la nube desde CSV">
+              <i data-lucide="upload-cloud" class="w-5 h-5"></i>
+            </button>
+            <input type="file" id="input-csv-sync" accept=".csv,.txt" class="hidden" onchange="procesarCSV(event)">
+            <!-- Botón de Cerrar Sesión -->
+            <button onclick="handleLogout()" class="p-2 hover:bg-red-700 text-white rounded-lg transition" title="Cerrar Sesión">
+              <i data-lucide="log-out" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Mobile Navigation Bar -->
+    <div class="md:hidden bg-brand-800 border-t border-brand-700 text-white flex justify-around py-2 shadow-inner flex-shrink-0">
+      <button onclick="switchTab('tab-dashboard')" id="m-btn-tab-dashboard" class="mobile-nav-btn flex flex-col items-center text-[10px] gap-0.5 py-1 px-2 rounded-lg text-emerald-300">
+        <i data-lucide="layout-dashboard" class="w-5 h-5"></i> Dashboard
+      </button>
+      <button onclick="switchTab('tab-socios')" id="m-btn-tab-socios" class="mobile-nav-btn flex flex-col items-center text-[10px] gap-0.5 py-1 px-2 rounded-lg text-white/70">
+        <i data-lucide="users" class="w-5 h-5"></i> Socios
+      </button>
+      <button onclick="switchTab('tab-asistencia')" id="m-btn-tab-asistencia" class="mobile-nav-btn flex flex-col items-center text-[10px] gap-0.5 py-1 px-2 rounded-lg text-white/70">
+        <i data-lucide="clock" class="w-5 h-5"></i> Jornada
+      </button>
+      <button onclick="switchTab('tab-planilla')" id="m-btn-tab-planilla" class="mobile-nav-btn flex flex-col items-center text-[10px] gap-0.5 py-1 px-2 rounded-lg text-white/70">
+        <i data-lucide="calculator" class="w-5 h-5"></i> Planilla
+      </button>
+      <button onclick="switchTab('tab-reportes')" id="m-btn-tab-reportes" class="mobile-nav-btn flex flex-col items-center text-[10px] gap-0.5 py-1 px-2 rounded-lg text-white/70">
+        <i data-lucide="file-text" class="w-5 h-5"></i> Historial
+      </button>
+    </div>
+
+    <!-- Banner para Sembrar Datos Iniciales -->
+    <div id="seed-banner" class="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-3 hidden">
+      <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div class="flex items-center gap-2 text-sm">
+          <i data-lucide="database-backup" class="w-5 h-5 text-amber-600"></i>
+          <span>La base de datos en Firebase está vacía. ¿Deseas precargar los socios y jornadas de prueba del reglamento interno?</span>
+        </div>
+        <button onclick="seedInitialDataToCloud()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition">
+          Cargar Datos Semilla
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 overflow-y-auto">
+      
+      <!-- ================= TAB: DASHBOARD ================= -->
+      <div id="tab-dashboard" class="tab-content active space-y-6">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <div>
+            <h2 class="text-xl font-bold text-slate-800">Panel General</h2>
+            <p class="text-sm text-slate-500 font-medium flex items-center gap-1 text-emerald-600">
+              <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span> 
+              Sincronizado globalmente en tiempo real
+            </p>
+          </div>
+          <div class="bg-brand-50 border border-brand-100 rounded-xl px-4 py-2 flex items-center gap-2">
+            <i data-lucide="target" class="w-4 h-4 text-brand-600"></i>
+            <span class="text-xs font-semibold text-slate-700"><span id="lbl-goal-hours">40</span> hs de Objetivo</span>
+          </div>
+        </div>
+
+        <!-- KPI Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+            <div>
+              <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Horas del Mes</span>
+              <h3 id="kpi-total-hours" class="text-2xl font-bold text-slate-900 mt-1">0.0</h3>
+              <p class="text-[10px] text-slate-500 mt-0.5">Junio 2026</p>
+            </div>
+            <div class="p-3.5 bg-emerald-50 rounded-xl text-emerald-600">
+              <i data-lucide="hourglass" class="w-7 h-7"></i>
+            </div>
+          </div>
+
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+            <div>
+              <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Socios Registrados</span>
+              <h3 id="kpi-total-socios" class="text-2xl font-bold text-slate-900 mt-1">0</h3>
+              <span id="kpi-exonerated-socios" class="text-[10px] text-emerald-600 font-medium">0 Exonerados</span>
+            </div>
+            <div class="p-3.5 bg-teal-50 rounded-xl text-teal-600">
+              <i data-lucide="users-2" class="w-7 h-7"></i>
+            </div>
+          </div>
+
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+            <div>
+              <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Jornadas Activas</span>
+              <h3 id="kpi-active-jornadas" class="text-2xl font-bold text-slate-900 mt-1">0</h3>
+              <p class="text-[10px] text-slate-500 mt-0.5">Trabajando ahora en la nube</p>
+            </div>
+            <div class="p-3.5 bg-blue-50 rounded-xl text-blue-600">
+              <i data-lucide="play-circle" class="w-7 h-7"></i>
+            </div>
+          </div>
+
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+            <div>
+              <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider font-bold">Total en Tesorería</span>
+              <h3 id="kpi-total-tesoreria" class="text-2xl font-bold text-red-600 mt-1">0.0 hs</h3>
+              <p class="text-[10px] text-slate-400 mt-0.5">Horas físicas no recuperadas</p>
+            </div>
+            <div class="p-3.5 bg-red-50 rounded-xl text-red-600">
+              <i data-lucide="banknote" class="w-7 h-7"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alertas de Horas en Riesgo -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <h3 class="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-500"></i> Alerta de Horas Realizadas Menores a 4 hs (Junio)
+          </h3>
+          <p class="text-xs text-slate-500 mb-4">El reglamento establece que los núcleos familiares deben registrar como mínimo 4 horas en el mes; de lo contrario, las horas acumuladas no serán computadas y se perderán al cierre del período.</p>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-100">
+              <thead>
+                <tr class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-50">
+                  <th class="py-2.5 px-4">Socio titular</th>
+                  <th class="py-2.5 px-4">Horas Realizadas en el Mes</th>
+                  <th class="py-2.5 px-4">Estado</th>
+                </tr>
+              </thead>
+              <tbody id="tbl-riesgo-cuerpo" class="divide-y divide-slate-100 text-xs">
+                <tr>
+                  <td colspan="3" class="py-4 text-center text-slate-400 font-medium">Cargando alertas de Firebase...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= TAB: SOCIOS & NÚCLEOS ================= -->
+      <div id="tab-socios" class="tab-content space-y-6">
+        <div class="flex flex-col lg:flex-row gap-6">
+          <!-- Registro Socio -->
+          <div id="panel-registro-socio" class="w-full lg:w-1/3 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm h-fit">
+            <h3 class="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <i data-lucide="user-plus" class="w-5 h-5 text-brand-600"></i> Registrar Socio Titular
+            </h3>
+            <form id="form-socio" class="space-y-4" onsubmit="event.preventDefault(); saveSocio();">
+              <div>
+                <label for="socio-id" class="block text-xs font-semibold text-slate-500 mb-1">Numero de Socio</label>
+                <input type="text" id="socio-id" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Ej. 636">
+              </div>
+              <div>
+                <label for="socio-nombre" class="block text-xs font-semibold text-slate-500 mb-1">Nombre del Titular</label>
+                <input type="text" id="socio-nombre" required class="w-full rounded-xl border border-slate-250 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Ej. Carlos Pérez">
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label for="socio-vivienda" class="block text-xs font-semibold text-slate-500 mb-1">Nº Vivienda/Lote</label>
+                  <input type="text" id="socio-vivienda" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Vivienda 001">
+                </div>
+                <div>
+                  <label for="socio-nacimiento" class="block text-xs font-semibold text-slate-500 mb-1">F. de Nacimiento</label>
+                  <input type="date" id="socio-nacimiento" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+                </div>
+              </div>
+              <div>
+                <label for="socio-comision" class="block text-xs font-semibold text-slate-500 mb-1">Comisión Asignada</label>
+                <select id="socio-comision" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+                  <option value="Ninguna">Ninguna</option>
+                  <option value="Consejo Directivo">Consejo Directivo</option>
+                  <option value="Comisión Fiscal">Comisión Fiscal</option>
+                  <option value="Comisión Fomento">Comisión Fomento</option>
+                  <option value="Comisión de Obra">Comisión de Obra</option>
+                  <option value="Comisión Electoral">Comisión Electoral</option>
+                </select>
+               </div>
+               <div class="flex items-center p-3 bg-red-50 border border-red-200 rounded-xl gap-3">
+                 <input type="checkbox" id="socio-certificado-medico" class="w-4 h-4 cursor-pointer accent-red-600">
+                 <label for="socio-certificado-medico" class="cursor-pointer flex-1">
+                   <p class="text-xs font-semibold text-red-900">Certificado Médico</p>
+                   <p class="text-[10px] text-red-700 mt-0.5">Incapacidad para trabajar (exonera si no hay otro habilitado)</p>
+                 </label>
+               </div>
+               <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2">
+                <i data-lucide="save" class="w-4 h-4"></i> Guardar Socio
+              </button>
+            </form>
+          </div>
+
+          <!-- Listado de Socios con Núcleo -->
+          <div class="w-full lg:w-2/3 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+            <h3 class="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <i data-lucide="users" class="w-5 h-5 text-brand-600"></i> Núcleos Familiares y Habilitaciones
+              <span id="badge-modo-edicion" class="ml-auto inline-flex items-center gap-1 bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold px-2.5 py-1 rounded-full hidden">
+                <i data-lucide="pencil" class="w-3 h-3"></i> MODO EDICIÓN
+              </span>
+            </h3>
+            <div class="space-y-4 max-h-[600px] overflow-y-auto pr-2" id="listado-socios-container">
+              <p class="text-center py-6 text-slate-400">Cargando socios de Firestore...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= TAB: CONTROL DE JORNADA ================= -->
+      <div id="tab-asistencia" class="tab-content space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Iniciar Fichaje de Ingreso -->
+          <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm h-fit">
+            <h3 class="text-base font-bold text-slate-800 mb-3 flex items-center gap-2 border-b border-slate-100 pb-3">
+              <i data-lucide="log-in" class="w-5 h-5 text-brand-600"></i> Fichar Ingreso (Entrada)
+            </h3>
+            <form id="form-ingreso" class="space-y-4" onsubmit="event.preventDefault(); registerIngreso();">
+              <div>
+                <label for="ingreso-socio" class="block text-xs font-semibold text-slate-500 mb-1">Socio / Numero</label>
+                <select id="ingreso-socio" required onchange="updateIngresoTrabajadores()" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+                  <option value="" disabled selected>Seleccione un Socio</option>
+                </select>
+              </div>
+              <div>
+                <label for="ingreso-trabajador" class="block text-xs font-semibold text-slate-500 mb-1">Integrante Habilitado</label>
+                <select id="ingreso-trabajador" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+                  <option value="" disabled selected>Seleccione socio primero</option>
+                </select>
+                <p class="text-[10px] text-slate-400 mt-1">Solo se listan integrantes habilitados (16 a 70 años).</p>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label for="ingreso-fecha" class="block text-xs font-semibold text-slate-500 mb-1">Fecha</label>
+                  <input type="date" id="ingreso-fecha" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+                </div>
+                <div>
+                  <label for="ingreso-hora" class="block text-xs font-semibold text-slate-500 mb-1">Hora de Ingreso</label>
+                  <input type="time" id="ingreso-hora" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+                </div>
+              </div>
+              <div>
+                <label for="ingreso-tarea" class="block text-xs font-semibold text-slate-500 mb-1">Tarea Planificada / Área</label>
+                <input type="text" id="ingreso-tarea" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Ej. Pintura de fachada, excavación...">
+              </div>
+              <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2">
+                <i data-lucide="play" class="w-4 h-4"></i> Iniciar Jornada de Trabajo
+              </button>
+            </form>
+          </div>
+
+          <!-- Jornadas en Curso / Pendientes de Egreso y Firma -->
+          <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+            <h3 class="text-base font-bold text-slate-800 mb-3 flex items-center gap-2 border-b border-slate-100 pb-3">
+              <i data-lucide="activity" class="w-5 h-5 text-blue-600"></i> Jornadas Activas en Obra
+            </h3>
+            <div class="space-y-4 max-h-[420px] overflow-y-auto pr-1" id="listado-activas-container">
+              <p class="text-center py-6 text-slate-400">Cargando jornadas...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= TAB: PLANILLA MENSUAL DE LIQUIDACIÓN ================= -->
+      <div id="tab-planilla" class="tab-content space-y-6">
+        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                <i data-lucide="calculator" class="w-5 h-5 text-brand-600"></i> Planilla de Cierre Mensual y Arrastre
+              </h3>
+              <p class="text-xs text-slate-500">Planilla de saldos del mes arrastrando saldos históricos almacenados en Firebase.</p>
+            </div>
+            
+            <div class="flex flex-wrap gap-2 items-center">
+              <select id="planilla-anio" onchange="renderPlanilla()" class="rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+                <option value="2026" selected>2026</option>
+                <option value="2027">2027</option>
+              </select>
+              <select id="planilla-mes" onchange="renderPlanilla()" class="rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+                <option value="01">Enero</option>
+                <option value="02">Febrero</option>
+                <option value="03">Marzo</option>
+                <option value="04">Abril</option>
+                <option value="05">Mayo</option>
+                <option value="06" selected>Junio</option>
+                <option value="07">Julio</option>
+                <option value="08">Agosto</option>
+                <option value="09">Septiembre</option>
+                <option value="10">Octubre</option>
+                <option value="11">Noviembre</option>
+                <option value="12">Diciembre</option>
+              </select>
+              <button id="btn-cerrar-mes" onclick="simularCierreMensual()" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm" title="Realizar el cierre y arrastrar remanentes/deudas al mes siguiente">
+                <i data-lucide="lock" class="w-3.5 h-3.5"></i> Cerrar Mes
+              </button>
+              <button id="btn-descargar-csv" onclick="exportPlanillaCSV()" class="bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i> CSV
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-100">
+              <thead class="bg-slate-50">
+                <tr class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  <th class="py-3 px-4">Socio / Nº Socio</th>
+                  <th class="py-3 px-4 text-center">Horas Comprometidas</th>
+                  <th class="py-3 px-4 text-center">Horas Realizadas</th>
+                  <th class="py-3 px-4 text-center">Saldo del Mes</th>
+                  <th class="py-3 px-4 text-center">Saldo Acumulado</th>
+                  <th class="py-3 px-4 text-center">Tesorería (hs)</th>
+                  <th class="py-3 px-4">Observaciones</th>
+                </tr>
+              </thead>
+              <tbody id="tbl-planilla-cuerpo" class="divide-y divide-slate-100 text-xs">
+                <!-- JS Dinámico -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= TAB: HISTORIAL ================= -->
+      <div id="tab-reportes" class="tab-content space-y-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+          <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+            <i data-lucide="filter" class="w-5 h-5 text-brand-600"></i> Historial Completo de Asistencias
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label for="filter-socio" class="block text-xs font-semibold text-slate-500 mb-1">Filtrar por Socio</label>
+              <select id="filter-socio" onchange="applyFilters()" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+                <option value="todos">Todos los Socios</option>
+              </select>
+            </div>
+            <div>
+              <label for="filter-trabajador" class="block text-xs font-semibold text-slate-500 mb-1">Nombre Trabajador</label>
+              <input type="text" id="filter-trabajador" oninput="applyFilters()" placeholder="Buscar trabajador..." class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+            </div>
+            <div>
+              <label for="filter-estado" class="block text-xs font-semibold text-slate-500 mb-1">Estado de Jornada</label>
+              <select id="filter-estado" onchange="applyFilters()" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+                <option value="finalizado">Finalizados (Con firma)</option>
+                <option value="activo">En Curso (Sin firma)</option>
+                <option value="todos">Todos</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabla Historial -->
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-100">
+              <thead class="bg-slate-50">
+                <tr class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  <th class="py-3.5 px-6">Fecha</th>
+                  <th class="py-3.5 px-6">Socio (Vivienda)</th>
+                  <th class="py-3.5 px-6">Trabajador</th>
+                  <th class="py-3.5 px-6">Jornada (Horas)</th>
+                  <th class="py-3.5 px-6">Detalle Tarea</th>
+                  <th class="py-3.5 px-6 text-center">Estado / Firma</th>
+                  <th class="py-3.5 px-6 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="tbl-reporte-cuerpo" class="divide-y divide-slate-100 text-xs">
+                <!-- JS dynamic rows -->
+              </tbody>
+            </table>
+          </div>
+          <div id="no-records-alert" class="hidden p-8 text-center text-slate-400">
+            <i data-lucide="inbox" class="w-12 h-12 mx-auto mb-2 text-slate-300"></i>
+            No se encontraron registros.
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ================= MODALES OPERATIVOS ================= -->
+
+    <!-- Modal de Egreso y Firma Canvas -->
+    <div id="modal-egreso-firma" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100">
+        <div class="bg-brand-700 text-white p-4 flex items-center justify-between">
+          <h3 class="font-bold flex items-center gap-2">
+            <i data-lucide="pen-tool" class="w-5 h-5 text-emerald-300"></i> Registrar Egreso y Firmar
+          </h3>
+          <button onclick="closeEgresoModal()" class="text-white/80 hover:text-white transition">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <div class="p-6 space-y-4">
+          <input type="hidden" id="egreso-registro-id">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-500 mb-1">Trabajador</label>
+              <div id="lbl-egreso-trabajador" class="p-3 bg-slate-50 rounded-xl text-sm font-semibold text-slate-800 border border-slate-100">-</div>
+            </div>
+            <div>
+              <label for="egreso-hora" class="block text-xs font-semibold text-slate-500 mb-1">Hora de Salida / Egreso</label>
+              <input type="time" id="egreso-hora" required class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+            </div>
+          </div>
+
+          <p class="text-xs text-slate-500">Por favor, estampe su firma digital en el cuadro para avalar la jornada trabajada.</p>
+          <div class="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
+            <canvas id="signature-canvas" width="450" height="180" class="w-full block"></canvas>
+          </div>
+          <div class="flex justify-between items-center text-xs text-slate-400">
+            <span>Lienzo de Firma Digital</span>
+            <button onclick="clearCanvas()" class="text-brand-600 hover:text-brand-800 font-semibold flex items-center gap-1">
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i> Limpiar Lienzo
+            </button>
+          </div>
+        </div>
+        <div class="bg-slate-50 px-6 py-4 flex justify-end gap-3">
+          <button onclick="closeEgresoModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
+          <button onclick="submitEgresoWithSignature()" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition">Finalizar Jornada</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal para Agregar Familiar al Núcleo -->
+    <div id="modal-nucleo" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
+        <div class="bg-brand-700 text-white p-4 flex items-center justify-between">
+          <h3 id="modal-nucleo-title" class="font-bold flex items-center gap-2">
+            <i data-lucide="user-plus" class="w-5 h-5 text-emerald-300"></i> Añadir Familiar al Núcleo
+          </h3>
+          <button onclick="closeNucleoModal()" class="text-white/80 hover:text-white transition">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <form onsubmit="event.preventDefault(); saveNucleoMember();" class="p-6 space-y-4">
+          <input type="hidden" id="nucleo-socio-id">
+          <input type="hidden" id="nucleo-edit-index" value="">
+          <div>
+            <label for="nucleo-nombre" class="block text-xs font-semibold text-slate-500 mb-1">Nombre Completo del Familiar</label>
+            <input type="text" id="nucleo-nombre" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="Luis Pérez">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label for="nucleo-nacimiento" class="block text-xs font-semibold text-slate-500 mb-1">F. de Nacimiento</label>
+              <input type="date" id="nucleo-nacimiento" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+            </div>
+            <div>
+              <label for="nucleo-parentesco" class="block text-xs font-semibold text-slate-500 mb-1">Parentesco</label>
+              <select id="nucleo-parentesco" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                <option value="" disabled selected>Relación</option>
+                <option value="Hijo/a">Hijo/a</option>
+                <option value="Cónyuge/Pareja">Cónyuge/Pareja</option>
+                <option value="Padre/Madre">Padre/Madre</option>
+                <option value="Hermano/a">Hermano/a</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="nucleo-comision" class="block text-xs font-semibold text-slate-500 mb-1">Comisión Asignada</label>
+            <select id="nucleo-comision" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+              <option value="Ninguna">Ninguna</option>
+              <option value="Consejo Directivo">Consejo Directivo</option>
+              <option value="Comisión Fiscal">Comisión Fiscal</option>
+              <option value="Comisión Fomento">Comisión Fomento</option>
+              <option value="Comisión de Obra">Comisión de Obra</option>
+              <option value="Comisión Electoral">Comisión Electoral</option>
+            </select>
+           </div>
+           <div class="flex items-center p-3 bg-amber-50 border border-amber-200 rounded-xl gap-3">
+             <input type="checkbox" id="nucleo-certificado-medico" class="w-4 h-4 cursor-pointer accent-amber-600">
+             <label for="nucleo-certificado-medico" class="cursor-pointer flex-1">
+               <p class="text-xs font-semibold text-amber-900">Certificado Médico</p>
+               <p class="text-[10px] text-amber-700 mt-0.5">Registrar incapacidad para trabajar</p>
+             </label>
+           </div>
+           <div class="pt-2 flex justify-end gap-3">
+            <button type="button" onclick="closeNucleoModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
+            <button id="btn-nucleo-submit" type="submit" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition">Añadir Familiar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal para Asignar Comisión -->
+    <div id="modal-comision" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100">
+        <div class="bg-purple-700 text-white p-4 flex items-center justify-between">
+          <h3 class="font-bold flex items-center gap-2">
+            <i data-lucide="badge-check" class="w-5 h-5 text-purple-100"></i> Asignación a Comisión
+          </h3>
+          <button onclick="closeComisionModal()" class="text-white/80 hover:text-white transition">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <form onsubmit="event.preventDefault(); saveCommissionAssignment();" class="p-6 space-y-4">
+          <input type="hidden" id="comision-target-type">
+          <input type="hidden" id="comision-socio-id">
+          <input type="hidden" id="comision-nucleo-index">
+          <div>
+            <label for="comision-valor" class="block text-xs font-semibold text-slate-500 mb-1">Comisión Asignada</label>
+            <select id="comision-valor" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 transition">
+              <option value="Ninguna">Ninguna</option>
+              <option value="Consejo Directivo">Consejo Directivo</option>
+              <option value="Comisión Fiscal">Comisión Fiscal</option>
+              <option value="Comisión Fomento">Comisión Fomento</option>
+              <option value="Comisión de Obra">Comisión de Obra</option>
+              <option value="Comisión Electoral">Comisión Electoral</option>
+            </select>
+           </div>
+           <div class="flex items-center p-3 bg-amber-50 border border-amber-200 rounded-xl gap-3">
+             <input type="checkbox" id="nucleo-certificado-medico" class="w-4 h-4 cursor-pointer accent-amber-600">
+             <label for="nucleo-certificado-medico" class="cursor-pointer flex-1">
+               <p class="text-xs font-semibold text-amber-900">Certificado Médico</p>
+               <p class="text-[10px] text-amber-700 mt-0.5">Registrar incapacidad para trabajar</p>
+             </label>
+           </div>
+           <div class="pt-2 flex justify-end gap-3">
+            <button type="button" onclick="closeComisionModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
+            <button type="submit" class="px-5 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-sm font-semibold transition">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal Configuración Horas Objetivo -->
+    <div id="modal-config" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100">
+        <div class="bg-brand-700 text-white p-4 flex items-center justify-between">
+          <h3 class="font-bold flex items-center gap-2">
+            <i data-lucide="settings" class="w-5 h-5 text-emerald-300"></i> Meta Mensual Global
+          </h3>
+          <button onclick="closeConfigModal()" class="text-white/80 hover:text-white transition">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <form onsubmit="event.preventDefault(); saveConfig();" class="p-6 space-y-4">
+          <div>
+            <label for="config-objetivo" class="block text-xs font-semibold text-slate-500 mb-1">Horas Objetivo (Vivienda/Mes)</label>
+            <input type="number" id="config-objetivo" min="1" max="200" required class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+          </div>
+          <!-- Toggle Modo Edición -->
+          <div class="flex items-center justify-between p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+            <div>
+              <p class="text-sm font-semibold text-amber-900">Modo Edición</p>
+              <p class="text-[11px] text-amber-700 mt-0.5">Permite gestionar Socios &amp; Núcleos</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="config-modo-edicion" class="sr-only peer" onchange="onToggleModoEdicion(this)">
+              <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
+          </div>
+          <!-- Campo clave de acceso (aparece solo al activar el toggle) -->
+          <div id="campo-clave-edicion" class="hidden">
+            <label for="clave-modo-edicion" class="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">
+              <i data-lucide="key-round" class="w-3.5 h-3.5 text-amber-600"></i> Clave de acceso
+            </label>
+            <input type="password" id="clave-modo-edicion" placeholder="••••••••"
+              class="w-full rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 transition"
+              autocomplete="off">
+          </div>
+          <div class="pt-2 flex justify-end gap-3">
+            <button type="button" onclick="closeConfigModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
+            <button type="submit" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal Vista Previa Firma Historial -->
+    <div id="modal-firma-preview" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100">
+        <div class="bg-slate-100 p-4 flex items-center justify-between">
+          <span class="text-sm font-bold text-slate-700">Firma Digital Registrada</span>
+          <button onclick="closeFirmaPreviewModal()" class="text-slate-500 hover:text-slate-700 transition">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <div class="p-6 flex justify-center bg-slate-50 border-b border-slate-100">
+          <img id="img-firma-preview" src="" alt="Firma digital" class="max-h-40 border border-slate-200 bg-white rounded-lg p-2">
+        </div>
+        <div class="p-4 flex justify-end">
+          <button onclick="closeFirmaPreviewModal()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal para Editar Socio Titular -->
+    <div id="modal-editar-socio" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
+        <div class="bg-blue-700 text-white p-4 flex items-center justify-between">
+          <h3 class="font-bold flex items-center gap-2">
+            <i data-lucide="edit-3" class="w-5 h-5 text-blue-300"></i> Editar Socio Titular
+          </h3>
+          <button onclick="closeEditarSocioModal()" class="text-white/80 hover:text-white transition">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <form onsubmit="event.preventDefault(); saveEditedSocio();" class="p-6 space-y-4">
+          <input type="hidden" id="editar-socio-id">
+          <div>
+            <label for="editar-socio-nombre" class="block text-xs font-semibold text-slate-500 mb-1">Nombre del Titular</label>
+            <input type="text" id="editar-socio-nombre" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Ej. Carlos Pérez">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label for="editar-socio-nacimiento" class="block text-xs font-semibold text-slate-500 mb-1">Fecha de Nacimiento</label>
+              <input type="date" id="editar-socio-nacimiento" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+            </div>
+            <div>
+              <label for="editar-socio-vivienda" class="block text-xs font-semibold text-slate-500 mb-1">Vivienda</label>
+              <input type="text" id="editar-socio-vivienda" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Ej. 4A">
+            </div>
+          </div>
+          <div class="flex items-center p-3 bg-red-50 border border-red-200 rounded-xl gap-3">
+            <input type="checkbox" id="editar-socio-certificado-medico" class="w-4 h-4 cursor-pointer accent-red-600">
+            <label for="editar-socio-certificado-medico" class="cursor-pointer flex-1">
+              <p class="text-xs font-semibold text-red-900">Certificado Médico</p>
+              <p class="text-[10px] text-red-700 mt-0.5">Incapacidad para trabajar (exonera si no hay otro habilitado)</p>
+            </label>
+          </div>
+          <div class="pt-2 flex justify-end gap-3">
+            <button type="button" onclick="closeEditarSocioModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
+            <button type="submit" class="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-sm font-semibold transition">Guardar Cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>
+
+
