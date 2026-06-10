@@ -15,6 +15,12 @@ const COMISIONES_LEGACY = {
 
 };
 
+// Helper function for formatting hours
+function formatHours(value) {
+  const roundedValue = Math.round(value);
+  return `${roundedValue}Hs`;
+}
+
 // Inicializar iconos de Lucide al cargar el DOM
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
@@ -261,7 +267,6 @@ async function clearCloudDatabase() {
 async function saveSocio() {
   const id = document.getElementById('socio-id').value.trim();
   const nombre = document.getElementById('socio-nombre').value.trim();
-  const vivienda = document.getElementById('socio-vivienda').value.trim();
   const fechaNacimiento = document.getElementById('socio-nacimiento').value;
   const comision = normalizarComision(document.getElementById('socio-comision').value);
   const certificadoMedico = document.getElementById('socio-certificado-medico').checked;
@@ -275,7 +280,6 @@ async function saveSocio() {
     await db.collection('socios').doc(id).set({
       id,
       nombre,
-      vivienda,
       fechaNacimiento,
       comision,
       certificadoMedico,
@@ -359,7 +363,7 @@ async function removeNucleoMember(socioId, index) {
 }
 
 async function registerIngreso() {
-  const socioId = document.getElementById('ingreso-socio').value;
+  const socioId = document.getElementById('ingreso-socio-filtered').value; // Ahora toma el ID del nuevo select
   const trabajadorNombre = document.getElementById('ingreso-trabajador').value;
   const fecha = document.getElementById('ingreso-fecha').value;
   const horaIngreso = document.getElementById('ingreso-hora').value;
@@ -367,11 +371,6 @@ async function registerIngreso() {
 
   if (!trabajadorNombre) {
     showToast("No se seleccionó un trabajador habilitado.", "error");
-    return;
-  }
-
-  if (registros.some(r => r.socioId === socioId && r.estado === 'activo')) {
-    showToast("La vivienda seleccionada ya cuenta con una jornada activa.", "error");
     return;
   }
 
@@ -426,7 +425,6 @@ async function submitEgresoWithSignature() {
       });
       showToast(`Egreso registrado: ${calculated} hs guardadas.`, "success");
       closeEgresoModal();
-      switchTab('tab-planilla');
     } catch (err) {
       showToast("Error al registrar egreso: " + err.message, "error");
     }
@@ -513,6 +511,18 @@ function applyModoEdicion() {
   }
   if (btnDescargarCSV) {
     btnDescargarCSV.style.display = modoEdicion ? '' : 'none';
+  }
+  const btnReabrirMes = document.getElementById('btn-reabrir-mes');
+  if (btnReabrirMes) {
+    btnReabrirMes.style.display = modoEdicion ? '' : 'none';
+  }
+  const btnDescargarPDF = document.getElementById('btn-descargar-pdf');
+  if (btnDescargarPDF) {
+    btnDescargarPDF.style.display = modoEdicion ? '' : 'none';
+  }
+  const btnTesoreria = document.getElementById('btn-reporte-tesoreria');
+  if (btnTesoreria) {
+    btnTesoreria.style.display = modoEdicion ? '' : 'none';
   }
   // Re-renderizar la lista de socios para mostrar/ocultar botones
   renderSociosList();
@@ -652,7 +662,6 @@ function parsearCSVSocios(texto) {
       socio: {
         id,
         nombre,
-        vivienda: id,          // vivienda = ID del socio
         fechaNacimiento,
         comision: 'Ninguna',
         nucleo
@@ -737,6 +746,42 @@ async function simularCierreMensual() {
   }
 }
 
+async function reabrirMes() {
+  const anio = document.getElementById('planilla-anio').value;
+  const mes = document.getElementById('planilla-mes').value;
+
+  if (!confirm(`¿Deseas reabrir el mes ${mes}/${anio}? Esto eliminará los saldos arrastrados para el siguiente período.`)) {
+    return;
+  }
+
+  let sigMes = parseInt(mes) + 1;
+  let sigAnio = parseInt(anio);
+  if (sigMes > 12) {
+    sigMes = 1;
+    sigAnio++;
+  }
+  const sigMesStr = String(sigMes).padStart(2, '0');
+  const sigAnioStr = String(sigAnio);
+  const claveSiguientePeriodo = `${sigAnioStr}-${sigMesStr}`;
+
+  try {
+    showToast("Reabriendo mes en Firebase...", "info");
+    // Eliminar los saldos históricos para el siguiente período para todos los socios
+    for (const s of socios) {
+      const clave = `${s.id}_${claveSiguientePeriodo}`;
+      const docRef = db.collection('saldosHistoricos').doc(clave);
+      const doc = await docRef.get();
+      if (doc.exists) {
+        await docRef.delete();
+      }
+    }
+    showToast(`Mes ${mes}/${anio} reabierto. Saldos del período ${sigMesStr}/${sigAnioStr} eliminados.`, "success");
+    renderPlanilla(); // Re-renderizar la planilla para reflejar los cambios
+  } catch (err) {
+    showToast("Error al reabrir el mes: " + err.message, "error");
+  }
+}
+
 // --- REGLAMENTO INTERNO (EDAD, EXONERACIONES, <4 HORAS) ---
 function calcularEdad(fechaNacStr) {
   if (!fechaNacStr) return 0;
@@ -806,10 +851,16 @@ function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
     })
     .reduce((sum, r) => sum + r.horasTrabajadas, 0);
 
-  if (horasFisicas > 0 && horasFisicas < 4) {
-    return { fisicas: horasFisicas, computables: 0, perdidas: true };
-  }
-  return { fisicas: horasFisicas, computables: horasFisicas, perdidas: false };
+  // Las horas computables deben ser múltiplos de 4. Si es menos de 4, se pierden.
+  const horasComputables = (horasFisicas >= 4) ? Math.floor(horasFisicas / 4) * 4 : 0;
+  const horasResto = Math.round((horasFisicas - horasComputables) * 100) / 100;
+
+  return { 
+    fisicas: horasFisicas, 
+    computables: horasComputables, 
+    perdidas: (horasFisicas > 0 && horasComputables === 0),
+    horasResto: horasResto
+  };
 }
 
 function obtenerResultadoHorasSocio(socio, anio, mes) {
@@ -954,7 +1005,6 @@ function renderSociosList() {
       <div class="space-y-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="flex items-center gap-2">
-            <span class="text-xs text-brand-600 font-bold bg-brand-50 px-2.5 py-1 rounded-lg">${s.vivienda}</span>
             <span class="text-xs font-mono text-slate-400">ID: ${s.id}</span>
           </div>
           <div class="flex gap-1">
@@ -979,16 +1029,18 @@ function renderSociosList() {
 }
 
 function setupAsistenciaForms() {
-  const socioSelect = document.getElementById('ingreso-socio');
-  if (!socioSelect) return;
-  socioSelect.innerHTML = '<option value="" disabled selected>Seleccione un Socio</option>';
-  
-  socios.forEach(s => {
-    const option = document.createElement('option');
-    option.value = s.id;
-    option.textContent = `${s.nombre} (${s.id})`;
-    socioSelect.appendChild(option);
-  });
+  const filterInput = document.getElementById('filter-socio-id');
+  const socioSelectFiltered = document.getElementById('ingreso-socio-filtered');
+  if (!filterInput || !socioSelectFiltered) return;
+
+  filterInput.value = ''; // Limpiar el filtro al configurar el formulario
+  filterAndRenderSociosForIngreso(); // Renderizar la lista inicial
+
+  // Event listener para el campo de filtro
+  filterInput.addEventListener('input', filterAndRenderSociosForIngreso);
+
+  // Event listener para el select de socios filtrados
+  socioSelectFiltered.addEventListener('change', updateIngresoTrabajadores);
 
   document.getElementById('ingreso-trabajador').innerHTML = '<option value="" disabled selected>Seleccione socio primero</option>';
   document.getElementById('ingreso-fecha').value = new Date().toISOString().split('T')[0];
@@ -996,13 +1048,41 @@ function setupAsistenciaForms() {
   const ahora = new Date();
   const hh = String(ahora.getHours()).padStart(2, '0');
   const mm = String(ahora.getMinutes()).padStart(2, '0');
-  document.getElementById('ingreso-hora').value = `${hh}:${mm}`;
+  document.getElementById('ingreso-hora').value = `${hh}:${mm}`; // Asegúrate de que este ID exista en tu HTML
 
   renderJornadasActivas();
 }
 
+function filterAndRenderSociosForIngreso() {
+  const filterInput = document.getElementById('filter-socio-id');
+  const socioSelectFiltered = document.getElementById('ingreso-socio-filtered');
+  if (!filterInput || !socioSelectFiltered) return;
+
+  const filterText = filterInput.value.toLowerCase();
+  socioSelectFiltered.innerHTML = '<option value="" disabled selected>Seleccione un Socio</option>';
+
+  const filteredSocios = socios.filter(s =>
+    s.id.toLowerCase().includes(filterText) ||
+    s.nombre.toLowerCase().includes(filterText)
+  );
+
+  filteredSocios.forEach(s => {
+    const option = document.createElement('option');
+    option.value = s.id;
+    option.textContent = `${s.nombre} (${s.id})`;
+    socioSelectFiltered.appendChild(option);
+  });
+
+  // Si solo hay un socio filtrado, seleccionarlo automáticamente
+  if (filteredSocios.length === 1) {
+    socioSelectFiltered.value = filteredSocios[0].id;
+  }
+
+  updateIngresoTrabajadores(); // Actualizar la lista de trabajadores después de filtrar socios
+}
+
 function updateIngresoTrabajadores() {
-  const socioId = document.getElementById('ingreso-socio').value;
+  const socioId = document.getElementById('ingreso-socio-filtered').value; // Ahora toma el ID del nuevo select
   const trabajadorSelect = document.getElementById('ingreso-trabajador');
   trabajadorSelect.innerHTML = '';
 
@@ -1059,7 +1139,7 @@ function renderJornadasActivas() {
   }
 
   activas.forEach(act => {
-    const socio = socios.find(s => s.id === act.socioId) || { vivienda: '-', nombre: 'Desconocido' };
+    const socio = socios.find(s => s.id === act.socioId) || { nombre: 'Desconocido' };
     
     const card = document.createElement('div');
     card.className = "p-4 border border-slate-100 rounded-xl bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3";
@@ -1067,7 +1147,6 @@ function renderJornadasActivas() {
       <div>
         <div class="flex items-center gap-2">
           <span class="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider">En obra</span>
-          <span class="text-xs text-slate-500 font-bold">${socio.vivienda}</span>
         </div>
         <h4 class="text-sm font-bold text-slate-800 mt-1">${act.trabajadorNombre}</h4>
         <p class="text-xs text-slate-500 mt-0.5">Ingresó: ${formatDateString(act.fecha)} a las ${act.horaIngreso} hs</p>
@@ -1204,7 +1283,7 @@ function renderPlanilla() {
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
     const comprometidas = objetivo + hist.deudaAnterior;
-    const saldoDelMes = objetivo - resHoras.computables;
+    const saldoDelMes = resHoras.computables - objetivo;
     
     const totalCredito = resHoras.computables + hist.remanenteAnterior;
 
@@ -1239,8 +1318,12 @@ function renderPlanilla() {
       }
     }
 
-    if (resHoras.perdidas) {
-      obs.push(`<span class="text-red-500 font-bold">Perdió ${resHoras.fisicas} hs (menor a 4 hs)</span>`);
+    if (resHoras.horasResto > 0 && !resHoras.cubiertasPorComision) {
+      if (resHoras.perdidas) {
+        obs.push(`<span class="text-red-500 font-bold">Perdió ${resHoras.horasResto} hs (no llegó al mínimo de 4 hs)</span>`);
+      } else {
+        obs.push(`<span class="text-amber-500 font-semibold">Resto: ${resHoras.horasResto} hs perdidas (no completó múltiplo de 4)</span>`);
+      }
     }
     if (resHoras.cubiertasPorComision && resHoras.fisicas > 0) {
       obs.push(`<span class="text-slate-500 font-semibold">${resHoras.fisicas.toFixed(1)} hs de campo no computables</span>`);
@@ -1260,31 +1343,31 @@ function renderPlanilla() {
         <div class="font-bold text-slate-800">${s.nombre}</div>
         <div class="text-[10px] text-slate-400 font-mono">Nº Socio: ${s.id}</div>
       </td>
-      <td class="py-3 px-4 text-center font-semibold text-slate-700">
-        ${comprometidas.toFixed(1)} hs
-        <div class="text-[9px] text-slate-400 font-normal">(${objetivo} + ${hist.deudaAnterior} deudas)</div>
+      <td class="py-3 px-4 text-center font-semibold text-slate-700 whitespace-nowrap">
+        ${formatHours(comprometidas)}
+        <div class="text-[9px] text-slate-400 font-normal">(${formatHours(objetivo)} + ${formatHours(hist.deudaAnterior)} deudas)</div>
       </td>
       <td class="py-3 px-4 text-center">
         <span class="font-bold ${resHoras.perdidas ? 'text-red-500 line-through' : resHoras.cubiertasPorComision ? 'text-purple-700' : 'text-slate-800'}">
-          ${resHoras.computables.toFixed(1)} hs
+          ${formatHours(resHoras.computables)}
         </span>
         ${resHoras.cubiertasPorComision ? `<div class="text-[8px] text-purple-600 font-bold">Cubiertas por comisión</div>` : ''}
-        ${resHoras.cubiertasPorComision && resHoras.fisicas > 0 ? `<div class="text-[8px] text-slate-400 line-through">${resHoras.fisicas.toFixed(1)} hs campo</div>` : ''}
-        ${resHoras.perdidas ? '<div class="text-[8px] text-red-500 font-bold">Perdidas (<4 hs)</div>' : ''}
+        ${resHoras.cubiertasPorComision && resHoras.fisicas > 0 ? `<div class="text-[8px] text-slate-400 line-through">${formatHours(resHoras.fisicas)} campo</div>` : ''}
+        ${resHoras.horasResto > 0 && !resHoras.cubiertasPorComision ? `<div class="text-[8px] ${resHoras.perdidas ? 'text-red-500' : 'text-amber-500'} font-bold">-${resHoras.horasResto} hs resto</div>` : ''}
       </td>
-      <td class="py-3 px-4 text-center font-bold ${saldoDelMes > 0 ? 'text-amber-600' : 'text-emerald-600'}">
-        ${saldoDelMes.toFixed(1)} hs
+      <td class="py-3 px-4 text-center font-bold ${saldoDelMes < 0 ? 'text-amber-600' : 'text-emerald-600'}">
+        ${formatHours(saldoDelMes)}
       </td>
       <td class="py-3 px-4 text-center">
         ${remanenteFinal > 0 
-          ? `<span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold border border-emerald-200">+${remanenteFinal.toFixed(1)} hs</span>`
+          ? `<span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold border border-emerald-200">+${formatHours(remanenteFinal)}</span>`
           : deudaFinal > 0 
-            ? `<span class="bg-red-50 text-red-700 px-2 py-0.5 rounded font-bold border border-red-200">Debe ${deudaFinal.toFixed(1)} hs</span>`
-            : `<span class="text-slate-400 font-semibold">0.0 hs</span>`
+            ? `<span class="bg-red-50 text-red-700 px-2 py-0.5 rounded font-bold border border-red-200">Debe ${formatHours(deudaFinal)}</span>`
+            : `<span class="text-slate-400 font-semibold">${formatHours(0)}</span>`
         }
       </td>
       <td class="py-3 px-4 text-center font-bold text-red-700">
-        ${hist.tesoreriaAcumulada > 0 ? `${hist.tesoreriaAcumulada.toFixed(1)} hs` : '-'}
+        ${hist.tesoreriaAcumulada > 0 ? formatHours(hist.tesoreriaAcumulada) : '-'}
       </td>
       <td class="py-3 px-4 text-slate-500 max-w-xs truncate">${obs.join(" | ") || '-'}</td>
     `;
@@ -1294,22 +1377,55 @@ function renderPlanilla() {
 
 // --- HISTORIAL ---
 function setupHistorial() {
-  const select = document.getElementById('filter-socio');
-  if (!select) return;
-  select.innerHTML = '<option value="todos">Todos los Socios</option>';
-  socios.forEach(s => {
-    const opt = document.createElement('option');
-    opt.value = s.id;
-    opt.textContent = `${s.nombre} (${s.vivienda})`;
-    select.appendChild(opt);
+  const filterInput = document.getElementById('filter-socio-id-history');
+  const socioSelect = document.getElementById('filter-socio-history');
+  const monthSelect = document.getElementById('filter-historial-mes');
+  const yearSelect = document.getElementById('filter-historial-anio');
+  
+  if (!filterInput || !socioSelect || !monthSelect || !yearSelect) return;
+
+  filterInput.value = '';
+  filterInput.addEventListener('input', filterAndRenderSociosForHistory);
+
+  populateMonthYearFilters(monthSelect, yearSelect);
+  filterAndRenderSociosForHistory();
+}
+
+function filterAndRenderSociosForHistory() {
+  const filterInput = document.getElementById('filter-socio-id-history');
+  const socioSelect = document.getElementById('filter-socio-history');
+  if (!filterInput || !socioSelect) return;
+
+  const filterText = filterInput.value.toLowerCase();
+  const currentVal = socioSelect.value;
+  socioSelect.innerHTML = '<option value="todos">Todos los Socios</option>';
+
+  const filteredSocios = socios.filter(s =>
+    s.id.toLowerCase().includes(filterText) ||
+    s.nombre.toLowerCase().includes(filterText)
+  );
+
+  filteredSocios.forEach(s => {
+    const option = document.createElement('option');
+    option.value = s.id;
+    option.textContent = `${s.nombre} (${s.id})`;
+    socioSelect.appendChild(option);
   });
+
+  // Intentar mantener selección previa si aún existe en la lista filtrada
+  if ([...socioSelect.options].some(o => o.value === currentVal)) {
+    socioSelect.value = currentVal;
+  }
+
   renderHistorialTable();
 }
 
 function renderHistorialTable() {
-  const socioVal = document.getElementById('filter-socio') ? document.getElementById('filter-socio').value : 'todos';
+  const socioVal = document.getElementById('filter-socio-history') ? document.getElementById('filter-socio-history').value : 'todos';
   const trabVal = document.getElementById('filter-trabajador') ? document.getElementById('filter-trabajador').value.toLowerCase().trim() : '';
   const estVal = document.getElementById('filter-estado') ? document.getElementById('filter-estado').value : 'todos';
+  const mesVal = document.getElementById('filter-historial-mes') ? document.getElementById('filter-historial-mes').value : 'todos';
+  const anioVal = document.getElementById('filter-historial-anio') ? document.getElementById('filter-historial-anio').value : 'todos';
 
   const tbody = document.getElementById('tbl-reporte-cuerpo');
   if (!tbody) return;
@@ -1319,6 +1435,9 @@ function renderHistorialTable() {
     if (socioVal !== 'todos' && r.socioId !== socioVal) return false;
     if (trabVal && !r.trabajadorNombre.toLowerCase().includes(trabVal)) return false;
     if (estVal !== 'todos' && r.estado !== estVal) return false;
+    const [regAnio, regMes] = r.fecha.split('-');
+    if (mesVal !== 'todos' && regMes !== mesVal) return false;
+    if (anioVal !== 'todos' && regAnio !== anioVal) return false;
     return true;
   }).sort((a, b) => b.fecha.localeCompare(a.fecha));
 
@@ -1330,7 +1449,7 @@ function renderHistorialTable() {
   if (alertNo) alertNo.classList.add('hidden');
 
   filtrados.forEach(r => {
-    const socio = socios.find(s => s.id === r.socioId) || { nombre: 'Eliminado/Desconocido', vivienda: '-' };
+    const socio = socios.find(s => s.id === r.socioId) || { nombre: 'Eliminado/Desconocido' };
     const esActivo = r.estado === 'activo';
 
     const row = document.createElement('tr');
@@ -1339,9 +1458,11 @@ function renderHistorialTable() {
       <td class="py-3 px-6 font-medium text-slate-700">${formatDateString(r.fecha)}</td>
       <td class="py-3 px-6">
         <div class="font-bold">${socio.nombre}</div>
-        <div class="text-[10px] text-brand-600 font-bold">${socio.vivienda}</div>
+        <div class="text-[10px] text-slate-400 font-mono">ID Titular: ${r.socioId}</div>
       </td>
-      <td class="py-3 px-6 text-slate-700">${r.trabajadorNombre}</td>
+      <td class="py-3 px-6 text-slate-700">
+        <div class="font-bold">${r.trabajadorNombre}</div>
+      </td>
       <td class="py-3 px-6">
         ${esActivo 
           ? `<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded">En curso</span>` 
@@ -1353,20 +1474,61 @@ function renderHistorialTable() {
       <td class="py-3 px-6 text-center">
         ${esActivo 
           ? `<i data-lucide="minus" class="w-5 h-5 mx-auto text-slate-300"></i>`
-          : `<button onclick="previewSignature('${r.id}')" class="text-brand-600 hover:text-brand-800 transition" title="Ver Firma">
-              <i data-lucide="signature" class="w-5 h-5 mx-auto"></i>
-             </button>`
+          : `<div class="flex items-center justify-center gap-3">
+              <button onclick="previewSignature('${r.id}')" class="text-brand-600 hover:text-brand-800 transition" title="Ver Firma">
+                <i data-lucide="signature" class="w-5 h-5"></i>
+              </button>
+              <button onclick="descargarPDFJornada('${r.id}')" class="text-emerald-600 hover:text-emerald-800 transition" title="Descargar PDF">
+                <i data-lucide="file-text" class="w-5 h-5"></i>
+              </button>
+            </div>`
         }
       </td>
       <td class="py-3 px-6 text-center">
-        <button onclick="deleteRecord('${r.id}')" class="text-red-500 hover:text-red-700 transition" title="Eliminar Registro">
-          <i data-lucide="trash-2" class="w-4 h-4 mx-auto"></i>
-        </button>
+        ${modoEdicion ? `
+          <button onclick="deleteRecord('${r.id}')" class="text-red-500 hover:text-red-700 transition" title="Eliminar Registro">
+            <i data-lucide="trash-2" class="w-4 h-4 mx-auto"></i>
+          </button>` : `<i data-lucide="lock" class="w-4 h-4 mx-auto text-slate-300"></i>`
+        }
       </td>
     `;
     tbody.appendChild(row);
   });
   lucide.createIcons();
+}
+
+function populateMonthYearFilters(monthSelect, yearSelect) {
+  const currentYear = new Date().getFullYear();
+  const currentMonth = (new Date().getMonth() + 1).toString().padStart(2, '0');
+
+  // Populate years (e.g., current year and a few years back)
+  yearSelect.innerHTML = '<option value="todos">Todos los Años</option>';
+  for (let i = 0; i < 5; i++) { // Last 5 years
+    const year = currentYear - i;
+    const option = document.createElement('option');
+    option.value = year.toString();
+    option.textContent = year.toString();
+    yearSelect.appendChild(option);
+  }
+  yearSelect.value = currentYear.toString(); // Default to current year
+
+  // Populate months
+  const months = [
+    { value: '01', text: 'Enero' }, { value: '02', text: 'Febrero' },
+    { value: '03', text: 'Marzo' }, { value: '04', text: 'Abril' },
+    { value: '05', text: 'Mayo' }, { value: '06', text: 'Junio' },
+    { value: '07', text: 'Julio' }, { value: '08', text: 'Agosto' },
+    { value: '09', text: 'Septiembre' }, { value: '10', text: 'Octubre' },
+    { value: '11', text: 'Noviembre' }, { value: '12', text: 'Diciembre' }
+  ];
+  monthSelect.innerHTML = '<option value="todos">Todos los Meses</option>';
+  months.forEach(m => {
+    const option = document.createElement('option');
+    option.value = m.value;
+    option.textContent = m.text;
+    monthSelect.appendChild(option);
+  });
+  monthSelect.value = currentMonth; // Default to current month
 }
 
 function applyFilters() {
@@ -1406,7 +1568,7 @@ function renderDashboard() {
     }
   });
   
-  document.getElementById('kpi-total-hours').textContent = `${totalComputables.toFixed(1)} hs`;
+  document.getElementById('kpi-total-hours').textContent = formatHours(totalComputables);
   document.getElementById('kpi-total-socios').textContent = socios.length;
   document.getElementById('kpi-exonerated-socios').textContent = `${totalExonerados} Exonerado(s)`;
 
@@ -1415,9 +1577,9 @@ function renderDashboard() {
 
   let totalTesoreria = 0;
   for (const clave in saldosHistoricos) {
-    totalTesoreria += (saldosHistoricos[clave].tesoreriaAcumulada || 0);
+    totalTesoreria += (saldosHistoricos[clave].tesoreriaAcumulada || 0); // This is a sum, not a display.
   }
-  document.getElementById('kpi-total-tesoreria').textContent = `${totalTesoreria.toFixed(1)} hs`;
+  document.getElementById('kpi-total-tesoreria').textContent = formatHours(totalTesoreria);
 
   const tbodyRiesgo = document.getElementById('tbl-riesgo-cuerpo');
   if (tbodyRiesgo) {
@@ -1431,11 +1593,11 @@ function renderDashboard() {
       if (res.fisicas > 0 && res.perdidas) {
         viviendasConRiesgo++;
         const row = document.createElement('tr');
-        row.className = "bg-red-50/40 hover:bg-red-50 transition";
+        row.className = "bg-red-50/40 hover:bg-red-50 transition whitespace-nowrap";
         row.innerHTML = `
-          <td class="py-2 px-4 font-bold text-slate-800">${s.nombre} (${s.vivienda})</td>
-          <td class="py-2 px-4 text-red-600 font-extrabold">${res.fisicas.toFixed(1)} hs trabajadas</td>
-          <td class="py-2 px-4 text-red-700 font-semibold flex items-center gap-1">
+          <td class="py-2 px-4 font-bold text-slate-800">${s.nombre}</td>
+          <td class="py-2 px-4 text-red-600 font-extrabold">${formatHours(res.fisicas)} trabajadas</td>
+          <td class="py-2 px-4 text-red-700 font-semibold flex items-center gap-1 whitespace-nowrap">
             <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Horas en riesgo de pérdida (mínimo 4 hs)
           </td>
         `;
@@ -1519,7 +1681,6 @@ function openEditarSocioModal(socioId) {
   document.getElementById('editar-socio-id').value = socioId;
   document.getElementById('editar-socio-nombre').value = socio.nombre || '';
   document.getElementById('editar-socio-nacimiento').value = socio.fechaNacimiento || '';
-  document.getElementById('editar-socio-vivienda').value = socio.vivienda || '';
   document.getElementById('editar-socio-certificado-medico').checked = socio.certificadoMedico || false;
   
   document.getElementById('modal-editar-socio').classList.remove('hidden');
@@ -1534,10 +1695,9 @@ async function saveEditedSocio() {
   const socioId = document.getElementById('editar-socio-id').value;
   const nombre = document.getElementById('editar-socio-nombre').value.trim();
   const fechaNacimiento = document.getElementById('editar-socio-nacimiento').value;
-  const vivienda = document.getElementById('editar-socio-vivienda').value.trim();
   const certificadoMedico = document.getElementById('editar-socio-certificado-medico').checked;
 
-  if (!nombre || !fechaNacimiento || !vivienda) {
+  if (!nombre || !fechaNacimiento) {
     showToast("Por favor completa todos los campos.", "error");
     return;
   }
@@ -1546,7 +1706,6 @@ async function saveEditedSocio() {
     await db.collection('socios').doc(socioId).update({
       nombre,
       fechaNacimiento,
-      vivienda,
       certificadoMedico
     });
 
@@ -1622,7 +1781,7 @@ function exportPlanillaCSV() {
   });
 
   let csvContent = "sep=,\n";
-  csvContent += "Socio,Nº Socio,Edad,Vivienda,Horas Objetivo,Horas Computables,Saldo del Mes,Deuda Anterior,Remanente Anterior,Comprometidas,Total Crédito,Remanente Final,Deuda Final,Observaciones\n";
+  csvContent += "Socio,Nº Socio,Edad,Horas Objetivo,Horas Computables,Saldo del Mes,Deuda Anterior,Remanente Anterior,Comprometidas,Total Crédito,Remanente Final,Deuda Final,Observaciones\n";
 
   sociosOrdenados.forEach(s => {
     const fechaNac = new Date(s.fechaNacimiento);
@@ -1659,9 +1818,13 @@ function exportPlanillaCSV() {
     if (!exonerado && comisionAsignada) obs.push(`Objetivo cubierto por comisión: ${comisionAsignada} (${objetivo} hs)`);
     if (s.comision !== 'Ninguna') obs.push(`Titular en comisión: ${s.comision}`);
 
+    if (resHoras.horasResto > 0 && !resHoras.cubiertasPorComision) {
+      obs.push(resHoras.perdidas ? `Perdió ${resHoras.horasResto} hs (menor a 4 hs)` : `Resto ${resHoras.horasResto} hs no computables`);
+    }
+
     const observacionesStr = obs.join("; ");
 
-    csvContent += `"${s.nombre}","${s.id}","${edad}","${s.vivienda}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${observacionesStr}"\n`;
+    csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${observacionesStr}"\n`;
   });
 
   // Crear blob y descargar
@@ -1677,11 +1840,417 @@ function exportPlanillaCSV() {
   showToast(`Planilla exportada: planilla-${mes}-${anio}.csv`, "success");
 }
 
+/**
+ * Genera un PDF optimizado para impresión A4 con los datos de la planilla mensual.
+ */
+function exportPlanillaPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+
+  const anio = document.getElementById('planilla-anio').value;
+  const mesNum = document.getElementById('planilla-mes').value;
+  const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  const mesNombre = meses[parseInt(mesNum) - 1];
+
+  if (socios.length === 0) {
+    showToast("No hay socios para exportar.", "info");
+    return;
+  }
+
+  // Ordenar socios por ID numérico
+  const sociosOrdenados = [...socios].sort((a, b) => {
+    const numA = parseInt(a.id, 10);
+    const numB = parseInt(b.id, 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+  const tableData = sociosOrdenados.map(s => {
+    const objetivo = obtenerObjetivoHorasSocio(s);
+    const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
+    const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
+    const comisionAsignada = obtenerComisionAsignadaNucleo(s);
+    const exonerado = esNucleoExonerado(s); // Check if the entire nucleus is exempt
+
+    // Calculations for the current month's display
+    const comprometidas = objetivo + hist.deudaAnterior; // Total hours to cover (objective + previous debt)
+    const saldoDelMes = resHoras.computables - objetivo; // Balance for the current month's objective
+    const totalCredito = resHoras.computables + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
+
+    let remanenteFinal = 0;
+    let deudaFinal = 0;
+    let pasajeATesoreriaCalculado = 0; // Amount of previous debt converted to Tesoreria this month
+
+    if (totalCredito >= comprometidas) { // If total credit covers all commitments
+      remanenteFinal = totalCredito - comprometidas; // Remaining surplus
+    } else { // If there's a deficit
+      deudaFinal = comprometidas - totalCredito; // New debt for the next month
+
+      // Calculate how much of the previous debt (hist.deudaAnterior) is converted to Tesoreria
+      const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
+      if (saldoTrasMesCorriente < hist.deudaAnterior) {
+        pasajeATesoreriaCalculado = hist.deudaAnterior - saldoTrasMesCorriente;
+        deudaFinal = Math.max(0, deudaFinal - pasajeATesoreriaCalculado); // Reduce next month's debt by what went to Tesoreria
+      }
+    }
+
+    // Round all hour values to integers for display
+    const saldoAnt = Math.round(hist.remanenteAnterior - hist.deudaAnterior);
+    const comprometidasRounded = Math.round(comprometidas);
+    const resHorasComputablesRounded = Math.round(resHoras.computables);
+    const saldoDelMesRounded = Math.round(saldoDelMes);
+    const saldoTot = Math.round(remanenteFinal - deudaFinal);
+    const deudaAnteriorRounded = Math.round(hist.deudaAnterior);
+    const pasajeATesoreriaRounded = Math.round(pasajeATesoreriaCalculado);
+    const deudaGeneradaEsteMesRounded = (saldoDelMesRounded < 0) ? Math.abs(saldoDelMesRounded) : 0;
+
+    // Observaciones abreviadas para ahorrar espacio
+    let obs = [];
+    if (exonerado) obs.push(s.certificadoMedico ? "Exon.Méd." : "Exon.Edad");
+    if (!exonerado && comisionAsignada) obs.push(`Com: ${comisionAsignada.split(' ').pop()}`);
+
+    if (resHoras.horasResto > 0 && !comisionAsignada) {
+      obs.push(resHoras.perdidas ? `Pérd. Total ${resHoras.horasResto}h` : `Resto -${resHoras.horasResto}h`);
+    }
+
+    // New observation logic based on user requirements
+    if (deudaAnteriorRounded > 0 && pasajeATesoreriaRounded > 0) {
+      if (deudaGeneradaEsteMesRounded > 0) {
+        obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)} A Recuperar ${formatHours(deudaGeneradaEsteMesRounded)}`);
+      } else {
+        obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)}`);
+      }
+    } else if (deudaAnteriorRounded === 0 && deudaGeneradaEsteMesRounded > 0) {
+      obs.push(`A Recuperar ${formatHours(deudaGeneradaEsteMesRounded)}`);
+    }
+
+    return [
+      s.id,
+      s.nombre.length > 22 ? s.nombre.substring(0, 20) + ".." : s.nombre,
+      saldoAnt,
+      formatHours(comprometidasRounded),
+      formatHours(resHorasComputablesRounded),
+      formatHours(saldoDelMesRounded),
+      formatHours(saldoTot),
+      obs.join(" | ").replace(/Hs/g, 'Hs') // Ensure 'Hs' is consistent
+    ];
+  });
+
+  // Encabezados de columna abreviados
+  const head = [['ID', 'Nombre', 'S. Ant.', 'H. Compr.', 'H. Real.', 'S. Mes', 'S. Tot.', 'Observaciones']];
+
+  doc.autoTable({
+    head: head,
+    body: tableData,
+    startY: 25,
+    theme: 'grid',
+    styles: {
+      fontSize: 7.5, // Tamaño reducido para que entren más filas
+      cellPadding: 1.2,
+      valign: 'middle'
+    },
+    headStyles: {
+      fillColor: [5, 150, 105], // Color brand-600
+      halign: 'center'
+    },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 42 },
+      2: { cellWidth: 15, halign: 'center' },
+      3: { cellWidth: 15, halign: 'center' },
+      4: { cellWidth: 15, halign: 'center' },
+      5: { cellWidth: 15, halign: 'center' },
+      6: { cellWidth: 15, halign: 'center' },
+      7: { cellWidth: 'auto' }
+    },
+    margin: { top: 25, bottom: 15 },
+    didDrawPage: function (data) {
+      // Encabezado en cada página
+      const logo = document.getElementById('logo-coop');
+      let headerX = data.settings.margin.left;
+      // Verificamos que el logo esté cargado para evitar errores de jsPDF
+      if (logo && logo.complete && logo.naturalWidth !== 0) {
+        try { doc.addImage(logo, 'PNG', headerX, 8, 12, 12); headerX += 15; } catch(e) { console.error("Error al añadir logo al PDF:", e); }
+      }
+      doc.setFontSize(11);
+      doc.setTextColor(40);
+      doc.setFont(undefined, 'bold');
+      doc.text(`COVIMT 9 - Estado de horas de ${mesNombre} de ${anio}`, headerX, 15);
+      doc.setFontSize(9);
+      doc.text(`Página ${data.pageNumber}`, 180, 15);
+    }
+  });
+
+  doc.save(`COVIMT9_Estado_Horas_${mesNum}_${anio}.pdf`);
+  showToast("Planilla PDF generada correctamente.", "success");
+}
+
+/**
+ * Genera un PDF específico para Tesorería con los socios que tuvieron pasaje de horas a tesorería en el mes.
+ * Muestra las horas de deuda anterior que no pudieron ser cubiertas/recuperadas.
+ */
+function exportReporteTesoreriaPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+
+  const logo = document.getElementById('logo-coop');
+  if (logo && logo.complete && logo.naturalWidth !== 0) {
+    try { doc.addImage(logo, 'PNG', 20, 12, 15, 15); } catch(e) { console.error(e); }
+  }
+
+  const anio = document.getElementById('planilla-anio').value;
+  const mesNum = document.getElementById('planilla-mes').value;
+  const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  const mesNombre = meses[parseInt(mesNum) - 1];
+
+  if (socios.length === 0) {
+    showToast("No hay socios para exportar.", "info");
+    return;
+  }
+
+  const sociosOrdenados = [...socios].sort((a, b) => {
+    const numA = parseInt(a.id, 10);
+    const numB = parseInt(b.id, 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+  const tableData = [];
+  let totalGeneralTesoreria = 0;
+
+  sociosOrdenados.forEach(s => {
+    const objetivo = obtenerObjetivoHorasSocio(s);
+    const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
+    const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
+    
+    // totalCredito: lo trabajado este mes + remanente traído del mes anterior
+    const totalCredito = resHoras.computables + hist.remanenteAnterior;
+    
+    let pasajeATesoreria = 0;
+    let horasRecuperadas = 0;
+
+    if (hist.deudaAnterior > 0) {
+      // El socio debe cubrir primero el objetivo actual
+      const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
+      // Lo que queda se usa para recuperar deuda
+      horasRecuperadas = Math.min(hist.deudaAnterior, saldoTrasObjetivo);
+      // Lo que no se recuperó de la deuda anterior se pierde y va a Tesorería
+      pasajeATesoreria = hist.deudaAnterior - horasRecuperadas;
+    }
+
+    if (pasajeATesoreria > 0) {
+      totalGeneralTesoreria += pasajeATesoreria;
+      tableData.push([
+        s.id,
+        s.nombre,
+        formatHours(Math.round(hist.deudaAnterior)),
+        formatHours(Math.round(resHoras.computables)),
+        formatHours(Math.round(horasRecuperadas)),
+        formatHours(Math.round(pasajeATesoreria))
+      ]);
+    }
+  });
+
+  if (tableData.length === 0) {
+    showToast(`No se encontraron deudas sin recuperar en ${mesNombre} ${anio}.`, "info");
+    return;
+  }
+
+  doc.setFontSize(16);
+  doc.setTextColor(5, 150, 105);
+  doc.text("COVIMT 9 - Informe de Tesorería", 105, 20, { align: 'center' });
+  doc.setFontSize(12);
+  doc.setTextColor(40);
+  doc.text(`Pasaje de Horas no Recuperadas - ${mesNombre} ${anio}`, 105, 28, { align: 'center' });
+
+  doc.autoTable({
+    head: [['ID', 'Socio Titular', 'Deuda Inicial', 'Trabajado', 'Recuperado', 'A Tesorería']],
+    body: tableData,
+    startY: 35,
+    theme: 'grid',
+    styles: { fontSize: 9 },
+    headStyles: { fillColor: [5, 150, 105] },
+    columnStyles: {
+      0: { cellWidth: 15, halign: 'center' },
+      2: { halign: 'center' },
+      3: { halign: 'center' },
+      4: { halign: 'center' },
+      5: { halign: 'center', fontStyle: 'bold' }
+    },
+    margin: { top: 30 }
+  });
+
+  const finalY = doc.lastAutoTable.finalY + 10;
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'bold');
+  doc.text(`Total de horas pasadas a Tesorería en el período: ${formatHours(Math.round(totalGeneralTesoreria))}`, 20, finalY);
+
+  doc.save(`COVIMT9_Tesoreria_${mesNum}_${anio}.pdf`);
+  showToast("Reporte de Tesorería generado correctamente.", "success");
+}
+
+/**
+ * Genera un PDF resumen para la cooperativa con todas las jornadas finalizadas de una fecha específica.
+ */
+async function generarReporteDiarioPDF() {
+  const fechaReporte = document.getElementById('reporte-jornada-fecha').value;
+  if (!fechaReporte) {
+    showToast("Por favor, selecciona una fecha para el reporte.", "error");
+    return;
+  }
+
+  const jornadasDelDia = registros.filter(r => r.fecha === fechaReporte && r.estado === 'finalizado');
+
+  if (jornadasDelDia.length === 0) {
+    showToast(`No se encontraron jornadas finalizadas para la fecha ${formatDateString(fechaReporte)}.`, "info");
+    return;
+  }
+
+  // Ordenar jornadas por número de socio (numérico si es posible, sino alfabético)
+  jornadasDelDia.sort((a, b) => {
+    const numA = parseInt(a.socioId, 10);
+    const numB = parseInt(b.socioId, 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return String(a.socioId).localeCompare(String(b.socioId));
+  });
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+
+  const logo = document.getElementById('logo-coop');
+  if (logo && logo.complete && logo.naturalWidth !== 0) {
+    try { doc.addImage(logo, 'PNG', 20, 12, 15, 15); } catch(e) { console.error(e); }
+  }
+
+  doc.setFontSize(16);
+  doc.setTextColor(5, 150, 105);
+  doc.text("COOPERATIVA DE VIVIENDA COVIMT 9", 105, 20, { align: 'center' });
+
+  doc.setFontSize(14);
+  doc.setTextColor(40, 40, 40);
+  doc.text(`Reporte Diario de Jornadas - ${formatDateString(fechaReporte)}`, 105, 30, { align: 'center' });
+
+  doc.setDrawColor(200, 200, 200);
+  doc.line(20, 35, 190, 35);
+
+  const tableColumnTitles = ["Nº Socio", "Nombre Trabajador", "Entrada", "Salida", "Horas", "Firma"];
+  const tableRows = jornadasDelDia.map(r => [
+    r.socioId,
+    r.trabajadorNombre,
+    r.horaIngreso,
+    r.horaSalida,
+    r.horasTrabajadas.toFixed(2),
+    { content: '', signature: r.firma }
+  ]);
+
+  doc.autoTable({
+    head: [tableColumnTitles],
+    body: tableRows,
+    startY: 45,
+    theme: 'grid',
+    styles: { fontSize: 9, cellPadding: 1.5, valign: 'middle' },
+    headStyles: { fillColor: [5, 150, 105], textColor: 255, halign: 'center' },
+    columnStyles: {
+      0: { cellWidth: 20, halign: 'center' },
+      1: { cellWidth: 45 },
+      2: { cellWidth: 20, halign: 'center' },
+      3: { cellWidth: 20, halign: 'center' },
+      4: { cellWidth: 15, halign: 'center' },
+      5: { cellWidth: 45, halign: 'center', minCellHeight: 12 }
+    },
+    didDrawCell: function (data) {
+      if (data.column.index === 5 && data.cell.section === 'body' && data.cell.raw.signature) {
+        const signature = data.cell.raw.signature;
+        const imgWidth = 25;
+        const imgHeight = 8;
+        const x = data.cell.x + (data.cell.width - imgWidth) / 2;
+        const y = data.cell.y + (data.cell.height - imgHeight) / 2;
+        doc.addImage(signature, 'PNG', x, y, imgWidth, imgHeight);
+      }
+    },
+    margin: { top: 20 },
+    didDrawPage: function (data) {
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(`Generado el: ${new Date().toLocaleString()}`, 20, doc.internal.pageSize.height - 10);
+      doc.text(`Página ${data.pageNumber}`, doc.internal.pageSize.width - 40, doc.internal.pageSize.height - 10);
+    }
+  });
+
+  doc.save(`Reporte_Diario_Jornadas_${fechaReporte}.pdf`);
+  showToast("Reporte diario PDF generado con éxito.", "success");
+}
+/**
+ * Genera un PDF individual para una jornada finalizada con todos los detalles y firma.
+ */
+function descargarPDFJornada(recordId) {
+  const reg = registros.find(r => r.id === recordId);
+  if (!reg || !reg.firma) {
+    showToast("No se encontró el registro o la firma para generar el PDF.", "error");
+    return;
+  }
+  const socio = socios.find(s => s.id === reg.socioId) || { nombre: 'Desconocido' };
+  
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+
+  const logo = document.getElementById('logo-coop');
+  if (logo && logo.complete && logo.naturalWidth !== 0) {
+    try { doc.addImage(logo, 'PNG', 20, 12, 15, 15); } catch(e) { console.error(e); }
+  }
+
+  // Encabezado descriptivo
+  doc.setFontSize(18);
+  doc.setTextColor(5, 150, 105); // Color brand-600
+  doc.text("COOPERATIVA DE VIVIENDA COVIMT 9", 105, 20, { align: 'center' });
+  
+  doc.setFontSize(14);
+  doc.setTextColor(40, 40, 40);
+  doc.text("Comprobante de Asistencia a Obra", 105, 30, { align: 'center' });
+
+  doc.setDrawColor(200, 200, 200);
+  doc.line(20, 35, 190, 35);
+
+  // Datos de la Jornada
+  doc.setFontSize(12);
+  doc.setFont(undefined, 'bold');
+  doc.text("INFORMACIÓN DEL SOCIO", 20, 45);
+  doc.setFont(undefined, 'normal');
+  doc.text(`Número de Socio: ${reg.socioId}`, 25, 53);
+  doc.text(`Socio Titular: ${socio.nombre}`, 25, 61);
+
+  doc.setFont(undefined, 'bold');
+  doc.text("DETALLES DEL TRABAJO", 20, 75);
+  doc.setFont(undefined, 'normal');
+  doc.text(`Persona que trabajó: ${reg.trabajadorNombre}`, 25, 83);
+  doc.text(`Fecha: ${formatDateString(reg.fecha)}`, 25, 91);
+  doc.text(`Hora Entrada: ${reg.horaIngreso} Hs`, 25, 99);
+  doc.text(`Hora Salida: ${reg.horaSalida} Hs`, 25, 107);
+  doc.text(`Total Horas Realizadas: ${reg.horasTrabajadas.toFixed(2)} Hs`, 25, 115);
+  doc.text(`Tarea Realizada: ${reg.tarea}`, 25, 123);
+
+  // Firma
+  doc.setFont(undefined, 'bold');
+  doc.text("FIRMA DIGITAL DE CONFORMIDAD", 105, 140, { align: 'center' });
+  doc.addImage(reg.firma, 'PNG', 75, 145, 60, 25);
+
+  doc.setFontSize(9);
+  doc.setTextColor(150, 150, 150);
+  doc.text(`Documento oficial generado el ${new Date().toLocaleString()}`, 20, 285);
+
+  doc.save(`Comprobante_Jornada_${reg.socioId}_${reg.fecha}.pdf`);
+  showToast("PDF de jornada generado con éxito.", "success");
+}
+
 function showToast(message, type = 'success') {
   const container = document.getElementById('toast-container');
   if (!container) return;
+
+  // Centrar el contenedor tanto horizontal como verticalmente en la pantalla
+  container.className = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10000] flex flex-col items-center gap-3 pointer-events-none w-full max-w-sm";
+
   const toast = document.createElement('div');
-  toast.className = `flex items-center gap-3 p-4 rounded-xl shadow-lg border text-sm transition-all duration-300 transform translate-y-2 opacity-0 select-none ${
+  toast.className = `flex items-center justify-center gap-3 p-4 rounded-xl shadow-lg border text-sm transition-all duration-300 transform scale-90 opacity-0 select-none pointer-events-auto w-fit mx-auto ${
     type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
     type === 'info' ? 'bg-blue-50 text-blue-800 border-blue-200' :
     'bg-red-50 text-red-800 border-red-200'
@@ -1695,11 +2264,9 @@ function showToast(message, type = 'success') {
   container.appendChild(toast);
   lucide.createIcons();
 
-  setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
+  setTimeout(() => toast.classList.remove('scale-90', 'opacity-0'), 10);
   setTimeout(() => {
-    toast.classList.add('opacity-0', 'translate-y-[-8px]');
+    toast.classList.add('opacity-0', 'scale-95');
     setTimeout(() => toast.remove(), 300);
   }, 4000);
 }
-
-

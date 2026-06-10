@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>COVIMT 9 Obra - Acceso Seguro</title>
+  <title>COVIMT 9 Obra </title>
+  <link rel="icon" type="image/png" href="pinos.png">
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Google Fonts: Outfit -->
@@ -17,6 +18,10 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <!-- Librerías para Generación de PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
@@ -115,12 +120,9 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex items-center justify-between h-16">
           <div class="flex items-center gap-3">
-            <div class="bg-white/10 p-2 rounded-xl">
-              <i data-lucide="cloud" class="h-6 w-6 text-emerald-300"></i>
-            </div>
+            <img id="logo-coop" src="pinos.png" alt="Logo COVIMT 9" class="h-10 w-10 object-contain">
             <div>
-              <h1 class="text-lg font-bold tracking-tight leading-none">COVIMT 9 Obra </h1>
-              <p class="text-[10px] text-emerald-200 mt-1">Conectado a Firebase Firestore</p>
+              <h1 class="text-lg font-bold tracking-tight leading-none">COVIMT 9 - Obra </h1>
             </div>
           </div>
           
@@ -301,11 +303,7 @@
                 <label for="socio-nombre" class="block text-xs font-semibold text-slate-500 mb-1">Nombre del Titular</label>
                 <input type="text" id="socio-nombre" required class="w-full rounded-xl border border-slate-250 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Ej. Carlos Pérez">
               </div>
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label for="socio-vivienda" class="block text-xs font-semibold text-slate-500 mb-1">Nº Vivienda/Lote</label>
-                  <input type="text" id="socio-vivienda" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Vivienda 001">
-                </div>
+              <div>
                 <div>
                   <label for="socio-nacimiento" class="block text-xs font-semibold text-slate-500 mb-1">F. de Nacimiento</label>
                   <input type="date" id="socio-nacimiento" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
@@ -359,9 +357,13 @@
               <i data-lucide="log-in" class="w-5 h-5 text-brand-600"></i> Fichar Ingreso (Entrada)
             </h3>
             <form id="form-ingreso" class="space-y-4" onsubmit="event.preventDefault(); registerIngreso();">
-              <div>
-                <label for="ingreso-socio" class="block text-xs font-semibold text-slate-500 mb-1">Socio / Numero</label>
-                <select id="ingreso-socio" required onchange="updateIngresoTrabajadores()" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+              <div class="form-group">
+                <label for="filter-socio-id" class="block text-sm font-medium text-slate-700 mb-1">Filtrar Socio por Numero:</label>
+                <input type="text" id="filter-socio-id" placeholder="Ej: 002, 022 o 222" class="block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm">
+              </div>
+              <div class="form-group mt-4">
+                <label for="ingreso-socio-filtered" class="block text-sm font-medium text-slate-700 mb-1">Socio Seleccionado:</label>
+                <select id="ingreso-socio-filtered" class="block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm">
                   <option value="" disabled selected>Seleccione un Socio</option>
                 </select>
               </div>
@@ -437,8 +439,18 @@
               <button id="btn-cerrar-mes" onclick="simularCierreMensual()" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm" title="Realizar el cierre y arrastrar remanentes/deudas al mes siguiente">
                 <i data-lucide="lock" class="w-3.5 h-3.5"></i> Cerrar Mes
               </button>
-              <button id="btn-descargar-csv" onclick="exportPlanillaCSV()" class="bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
+              <button id="btn-reabrir-mes" onclick="reabrirMes()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm" title="Reabrir el mes actual para modificaciones y recalcular saldos futuros">
+                <i data-lucide="unlock" class="w-3.5 h-3.5"></i> Reabrir Mes
+              </button>
+              <!-- El botón de CSV se oculta y se agrega el de PDF -->
+              <button id="btn-descargar-csv" onclick="exportPlanillaCSV()" class="hidden bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
                 <i data-lucide="download" class="w-3.5 h-3.5"></i> CSV
+              </button>
+              <button id="btn-descargar-pdf" onclick="exportPlanillaPDF()" class="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
+                <i data-lucide="file-text" class="w-3.5 h-3.5"></i> Generar PDF
+              </button>
+              <button id="btn-reporte-tesoreria" onclick="exportReporteTesoreriaPDF()" class="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5" title="Generar informe de horas no recuperadas que pasan a tesorería">
+                <i data-lucide="landmark" class="w-3.5 h-3.5"></i> Reporte Tesorería
               </button>
             </div>
           </div>
@@ -467,19 +479,38 @@
       <!-- ================= TAB: HISTORIAL ================= -->
       <div id="tab-reportes" class="tab-content space-y-6">
         <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+          <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3 w-full md:w-auto">
+                <label for="reporte-jornada-fecha" class="text-slate-700 font-semibold whitespace-nowrap text-sm">Fecha del Reporte:</label>
+                <input type="date" id="reporte-jornada-fecha" class="input-field p-2 border border-slate-200 rounded-md text-sm focus:ring-brand-500 focus:border-brand-500 flex-grow">
+            </div>
+            <button onclick="generarReporteDiarioPDF()" class="w-full md:w-auto px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2">
+                <i data-lucide="file-text" class="w-4 h-4"></i> Generar Reporte Diario PDF
+            </button>
+          </div>
+
           <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
             <i data-lucide="filter" class="w-5 h-5 text-brand-600"></i> Historial Completo de Asistencias
           </h3>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label for="filter-socio" class="block text-xs font-semibold text-slate-500 mb-1">Filtrar por Socio</label>
-              <select id="filter-socio" onchange="applyFilters()" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div class="space-y-2">
+              <label for="filter-socio-id-history" class="block text-xs font-semibold text-slate-500 mb-1">Filtrar Socio (ID/Nombre)</label>
+              <input type="text" id="filter-socio-id-history" placeholder="Buscar..." class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500 transition">
+              <select id="filter-socio-history" onchange="applyFilters()" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
                 <option value="todos">Todos los Socios</option>
               </select>
             </div>
             <div>
               <label for="filter-trabajador" class="block text-xs font-semibold text-slate-500 mb-1">Nombre Trabajador</label>
               <input type="text" id="filter-trabajador" oninput="applyFilters()" placeholder="Buscar trabajador..." class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+            </div>
+            <div>
+              <label for="filter-historial-mes" class="block text-xs font-semibold text-slate-500 mb-1">Mes</label>
+              <select id="filter-historial-mes" onchange="applyFilters()" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500"></select>
+            </div>
+            <div>
+              <label for="filter-historial-anio" class="block text-xs font-semibold text-slate-500 mb-1">Año</label>
+              <select id="filter-historial-anio" onchange="applyFilters()" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500"></select>
             </div>
             <div>
               <label for="filter-estado" class="block text-xs font-semibold text-slate-500 mb-1">Estado de Jornada</label>
@@ -499,7 +530,7 @@
               <thead class="bg-slate-50">
                 <tr class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
                   <th class="py-3.5 px-6">Fecha</th>
-                  <th class="py-3.5 px-6">Socio (Vivienda)</th>
+                  <th class="py-3.5 px-6">Socio</th>
                   <th class="py-3.5 px-6">Trabajador</th>
                   <th class="py-3.5 px-6">Jornada (Horas)</th>
                   <th class="py-3.5 px-6">Detalle Tarea</th>
@@ -750,10 +781,6 @@
               <label for="editar-socio-nacimiento" class="block text-xs font-semibold text-slate-500 mb-1">Fecha de Nacimiento</label>
               <input type="date" id="editar-socio-nacimiento" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
             </div>
-            <div>
-              <label for="editar-socio-vivienda" class="block text-xs font-semibold text-slate-500 mb-1">Vivienda</label>
-              <input type="text" id="editar-socio-vivienda" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Ej. 4A">
-            </div>
           </div>
           <div class="flex items-center p-3 bg-red-50 border border-red-200 rounded-xl gap-3">
             <input type="checkbox" id="editar-socio-certificado-medico" class="w-4 h-4 cursor-pointer accent-red-600">
@@ -774,5 +801,3 @@
 
 </body>
 </html>
-
-
