@@ -25,6 +25,14 @@ function formatHours(value) {
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
   checkAuthAndInit();
+
+  // Asignar manejadores de eventos a los botones para evitar ReferenceError por 'defer'
+  document.getElementById('btn-descargar-pdf')?.addEventListener('click', exportPlanillaPDF);
+  document.getElementById('btn-reporte-tesoreria')?.addEventListener('click', exportReporteTesoreriaPDF);
+  document.getElementById('btn-generar-reporte-diario-pdf')?.addEventListener('click', generarReporteDiarioPDF);
+  document.getElementById('btn-cerrar-mes')?.addEventListener('click', simularCierreMensual);
+  document.getElementById('btn-reabrir-mes')?.addEventListener('click', reabrirMes);
+  document.getElementById('btn-descargar-csv')?.addEventListener('click', exportPlanillaCSV);
 });
 
 // --- AUTENTICACIÓN Y SEGURIDAD ---
