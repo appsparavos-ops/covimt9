@@ -12,6 +12,11 @@ function formatHours(value) {
   return `${roundedValue}Hs`;
 }
 
+// Función para normalizar texto (Mayúsculas y quitar acentos)
+function cleanText(text) {
+  return (text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+}
+
 function showToast(message, type = 'success') {
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -36,8 +41,8 @@ function showToast(message, type = 'success') {
   setTimeout(() => toast.classList.remove('scale-90', 'opacity-0'), 10);
   setTimeout(() => {
     toast.classList.add('opacity-0', 'scale-95');
-    setTimeout(() => toast.remove(), 4000);
-  }, 4000);
+    setTimeout(() => toast.remove(), 400);
+  }, 3500);
 }
 
 function calcularEdad(fechaNacStr) {
@@ -152,6 +157,31 @@ function formatDateString(str) {
   return `${d}/${m}/${y}`;
 }
 
+// Nuevo: Modal de diagnóstico con botón de cierre
+function showDiagnosticModal(title, message, isError = false) {
+  // Eliminar si ya existe uno
+  const oldModal = document.getElementById('diagnostic-modal');
+  if (oldModal) oldModal.remove();
+
+  const modalHtml = `
+    <div id="diagnostic-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border ${isError ? 'border-red-200' : 'border-emerald-200'}">
+        <div class="${isError ? 'bg-red-600' : 'bg-emerald-600'} p-4 text-white font-bold flex items-center gap-2">
+          <i data-lucide="${isError ? 'alert-circle' : 'check-circle'}" class="w-5 h-5"></i>
+          ${title}
+        </div>
+        <div class="p-6">
+          <p class="text-slate-600 text-sm leading-relaxed">${message}</p>
+          <button onclick="document.getElementById('diagnostic-modal').remove()" class="mt-6 w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl transition">
+            Cerrar y reintentar
+          </button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  lucide.createIcons();
+}
+
 // Inicializar iconos de Lucide al cargar el DOM
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
@@ -176,8 +206,13 @@ async function initMemberApp() {
     // Login automático con cuenta genérica para permitir lectura de datos bajo reglas de seguridad.
     // Esto garantiza que cualquier consulta posterior a Firestore esté autenticada.
     if (!firebase.auth().currentUser || firebase.auth().currentUser.email !== "socios@coope.com") {
-      await firebase.auth().signInWithEmailAndPassword("socios@coope.com", "socios");
+      const userCredential = await firebase.auth().signInWithEmailAndPassword("socios@coope.com", "socios");
+      console.log("Sesión de consulta iniciada:", userCredential.user.email);
     }
+
+    // Test de lectura: intentamos traer la configuración
+    const testDoc = await db.collection('config').doc('metaGlobal').get();
+    console.log("Test de conexión a Firestore:", testDoc.exists ? "EXITOSO" : "FALLIDO (No existe metaGlobal)");
 
     // Una vez autenticados con Firebase, verificamos si ya existe una sesión "interna" de socio
     currentMemberSocioId = localStorage.getItem('memberSocioId');
@@ -188,8 +223,12 @@ async function initMemberApp() {
       showMemberLogin();
     }
   } catch (error) {
-    console.error("Error al inicializar sesión genérica de Firebase:", error);
-    // Si el login genérico falla, permitimos ver el login de socio pero las consultas fallarán
+    console.error("Error de inicialización:", error);
+    showDiagnosticModal(
+      "Error de Conexión", 
+      "No se pudo establecer conexión con la base de datos. Verifica tu internet o la configuración de Firebase.\n\nDetalle: " + error.message,
+      true
+    );
     showMemberLogin();
   }
 }
@@ -207,7 +246,7 @@ function showMemberPortal() {
 }
 
 async function handleMemberLogin() {
-  const nombre = document.getElementById('member-login-name').value.trim().toUpperCase();
+  const nombre = cleanText(document.getElementById('member-login-name').value);
   const socioId = document.getElementById('member-login-id').value.trim();
   const submitBtn = document.getElementById('btn-member-login-submit');
 
@@ -223,26 +262,28 @@ async function handleMemberLogin() {
   try {
     // Aseguramos que la sesión genérica de Firebase esté activa antes de consultar la base de datos
     if (!firebase.auth().currentUser) {
-      console.log("Re-intentando login genérico de Firebase antes de la consulta de socio...");
       await firebase.auth().signInWithEmailAndPassword("socios@coope.com", "socios");
-      console.log("Re-login genérico de Firebase exitoso.");
     }
 
     // Optimizamos: Buscamos directamente por ID de documento (Primary Key)
-    // Esto evita la necesidad de crear índices compuestos en Firebase.
     const doc = await db.collection('socios').doc(socioId).get();
 
     if (!doc.exists) {
-      showToast("Credenciales incorrectas: Número de socio no encontrado.", "error");
+      showDiagnosticModal(
+        "Socio no encontrado", 
+        `El número de socio "${socioId}" no existe en la base de datos. Verifica que incluya puntos y guiones si así fue registrado (ej: 1.234.567-8).`,
+        true
+      );
       return;
     }
 
     const socioData = doc.data();
-    if (socioData.nombre !== nombre) {
-      showToast("Credenciales incorrectas: El nombre no coincide con el número de socio.", "error");
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = `<i data-lucide="log-in" class="w-4 h-4"></i> Acceder al Portal`;
-      lucide.createIcons();
+    if (cleanText(socioData.nombre) !== nombre) {
+      showDiagnosticModal(
+        "Nombre no coincide", 
+        `El número de socio existe, pero el nombre ingresado no coincide.\n\nIngresaste: "${nombre}"\nEn sistema: "${socioData.nombre.toUpperCase()}"`,
+        true
+      );
       return;
     }
 

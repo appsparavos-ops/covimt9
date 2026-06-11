@@ -280,7 +280,7 @@ async function clearCloudDatabase() {
 // --- ACCIONES ESCRITURA FIRESTORE ---
 async function saveSocio() {
   const id = document.getElementById('socio-id').value.trim();
-  const nombre = document.getElementById('socio-nombre').value.trim().toUpperCase();
+  const nombre = cleanText(document.getElementById('socio-nombre').value);
   const fechaAlta = document.getElementById('socio-alta').value;
   const fechaNacimiento = document.getElementById('socio-nacimiento').value;
   const comision = normalizarComision(document.getElementById('socio-comision').value);
@@ -446,7 +446,7 @@ async function saveNucleoMember() {
   const socioId = document.getElementById('nucleo-socio-id').value;
   const editIndexValue = document.getElementById('nucleo-edit-index').value;
   const editIndex = editIndexValue === '' ? -1 : parseInt(editIndexValue);
-  const nombre = document.getElementById('nucleo-nombre').value.trim().toUpperCase();
+  const nombre = cleanText(document.getElementById('nucleo-nombre').value);
   const fechaNacimiento = document.getElementById('nucleo-nacimiento').value;
   const parentesco = document.getElementById('nucleo-parentesco').value;
   const comision = normalizarComision(document.getElementById('nucleo-comision').value);
@@ -772,7 +772,7 @@ function parsearCSVSocios(texto) {
   for (const linea of lineas.slice(inicio)) {
     const cols = linea.split(';').map(c => c.trim());
     const id     = cols[0];
-    const nombre = (cols[1] || '').toUpperCase();
+    const nombre = cleanText(cols[1]);
     if (!id || !nombre) continue;
 
     const fechaNacimiento = parsearFechaCSV(cols[2]);
@@ -781,7 +781,7 @@ function parsearCSVSocios(texto) {
     const nucleo = [];
     for (let i = 0; i < 10; i++) {
       const base = 3 + i * 3;
-      const nomFam     = (cols[base]     || '').trim().toUpperCase();
+      const nomFam     = cleanText(cols[base]);
       const parentesco = (cols[base + 1] || '').trim();
       const nacFam     = parsearFechaCSV(cols[base + 2] || '');
       if (nomFam) {
@@ -1863,7 +1863,7 @@ function closeEditarSocioModal() {
 
 async function saveEditedSocio() {
   const socioId = document.getElementById('editar-socio-id').value;
-  const nombre = document.getElementById('editar-socio-nombre').value.trim().toUpperCase();
+  const nombre = cleanText(document.getElementById('editar-socio-nombre').value);
   const fechaNacimiento = document.getElementById('editar-socio-nacimiento').value;
   const certificadoMedico = document.getElementById('editar-socio-certificado-medico').checked;
 
