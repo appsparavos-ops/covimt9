@@ -75,7 +75,7 @@
   <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
   <!-- ================= PANTALLA DE LOGIN SEGURO ================= -->
-  <div id="view-login" class="flex-grow flex items-center justify-center p-4 bg-gradient-to-tr from-brand-900 via-brand-800 to-teal-950">
+  <div id="view-login" class="hidden flex-grow flex items-center justify-center p-4 bg-gradient-to-tr from-brand-900 via-brand-800 to-teal-950">
     <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-white/10 p-8 space-y-6">
       <div class="text-center space-y-2">
         <div class="bg-brand-50 text-brand-700 p-4 rounded-2xl w-fit mx-auto shadow-inner">
@@ -101,7 +101,10 @@
             <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
               <i data-lucide="lock" class="w-4 h-4"></i>
             </span>
-            <input type="password" id="login-password" required class="w-full rounded-xl border border-slate-200 pl-10 pr-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="••••••••">
+            <input type="password" id="login-password" required class="w-full rounded-xl border border-slate-200 pl-10 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="••••••••">
+            <button type="button" onclick="togglePasswordVisibility('login-password', 'eye-icon')" class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-brand-600 transition">
+              <i id="eye-icon" data-lucide="eye" class="w-4 h-4"></i>
+            </button>
           </div>
         </div>
         
@@ -300,8 +303,12 @@
                 <input type="text" id="socio-id" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Ej. 636">
               </div>
               <div>
+                <label for="socio-alta" class="block text-xs font-semibold text-slate-500 mb-1">Fecha de Alta en Sistema</label>
+                <input type="date" id="socio-alta" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+              </div>
+              <div>
                 <label for="socio-nombre" class="block text-xs font-semibold text-slate-500 mb-1">Nombre del Titular</label>
-                <input type="text" id="socio-nombre" required class="w-full rounded-xl border border-slate-250 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Ej. Carlos Pérez">
+                <input type="text" id="socio-nombre" oninput="this.value = this.value.toUpperCase()" required class="w-full rounded-xl border border-slate-250 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" placeholder="Ej. CARLOS PÉREZ">
               </div>
               <div>
                 <div>
@@ -577,6 +584,11 @@
             </div>
           </div>
 
+          <div class="p-3 bg-brand-50 border border-brand-100 rounded-xl flex items-center justify-between">
+            <span class="text-xs font-semibold text-brand-700">Horas a computar:</span>
+            <span id="lbl-egreso-horas-calculadas" class="text-lg font-bold text-brand-800">0.0 hs</span>
+          </div>
+
           <p class="text-xs text-slate-500">Por favor, estampe su firma digital en el cuadro para avalar la jornada trabajada.</p>
           <div class="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
             <canvas id="signature-canvas" width="450" height="180" class="w-full block"></canvas>
@@ -611,7 +623,7 @@
           <input type="hidden" id="nucleo-edit-index" value="">
           <div>
             <label for="nucleo-nombre" class="block text-xs font-semibold text-slate-500 mb-1">Nombre Completo del Familiar</label>
-            <input type="text" id="nucleo-nombre" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="Luis Pérez">
+            <input type="text" id="nucleo-nombre" oninput="this.value = this.value.toUpperCase()" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="LUIS PÉREZ">
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -774,7 +786,7 @@
           <input type="hidden" id="editar-socio-id">
           <div>
             <label for="editar-socio-nombre" class="block text-xs font-semibold text-slate-500 mb-1">Nombre del Titular</label>
-            <input type="text" id="editar-socio-nombre" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Ej. Carlos Pérez">
+            <input type="text" id="editar-socio-nombre" oninput="this.value = this.value.toUpperCase()" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Ej. CARLOS PÉREZ">
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -792,6 +804,45 @@
           <div class="pt-2 flex justify-end gap-3">
             <button type="button" onclick="closeEditarSocioModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
             <button type="submit" class="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-sm font-semibold transition">Guardar Cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal para Cambio de Titular / Baja Histórica -->
+    <div id="modal-gestion-estado" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
+        <div id="header-gestion-estado" class="bg-slate-800 text-white p-4 flex items-center justify-between">
+          <h3 id="title-gestion-estado" class="font-bold flex items-center gap-2">Gestión de Socio</h3>
+          <button onclick="closeGestionEstadoModal()" class="text-white/80 hover:text-white transition">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <form onsubmit="event.preventDefault(); processGestionEstado();" class="p-6 space-y-4">
+          <input type="hidden" id="gestion-socio-id">
+          <input type="hidden" id="gestion-tipo-accion">
+          
+          <div id="container-nuevo-titular" class="hidden">
+            <label for="gestion-nuevo-titular" class="block text-xs font-semibold text-slate-500 mb-1">Seleccionar Nuevo Titular</label>
+            <select id="gestion-nuevo-titular" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:ring-2 focus:ring-brand-500 transition">
+              <!-- Dinámico -->
+            </select>
+            <p class="text-[10px] text-slate-400 mt-1">El titular actual pasará a integrar el núcleo familiar.</p>
+          </div>
+
+          <div id="container-baja-aviso" class="hidden p-3 bg-red-50 border border-red-100 rounded-xl">
+            <p class="text-xs text-red-700 font-medium">Esta acción marcará al socio y su núcleo como inactivos a partir de la fecha seleccionada. No aparecerán en planillas futuras.</p>
+          </div>
+
+          <div>
+            <label for="gestion-fecha-efectiva" class="block text-xs font-semibold text-slate-500 mb-1">Fecha de Efectividad</label>
+            <input type="date" id="gestion-fecha-efectiva" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:ring-2 focus:ring-brand-500 transition">
+            <p class="text-[10px] text-slate-400 mt-1">Los cambios se reflejarán en los informes a partir de este día inclusive.</p>
+          </div>
+
+          <div class="pt-2 flex justify-end gap-3">
+            <button type="button" onclick="closeGestionEstadoModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
+            <button id="btn-confirmar-gestion" type="submit" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition">Confirmar Cambio</button>
           </div>
         </form>
       </div>

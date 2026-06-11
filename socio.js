@@ -12,6 +12,31 @@ function formatHours(value) {
   return `${roundedValue}Hs`;
 }
 
+function calculateHours(ingreso, salida) {
+  if (!ingreso || !salida) return 0;
+  const [h1, m1] = ingreso.split(':').map(Number);
+  const [h2, m2] = salida.split(':').map(Number);
+  let diffMin = (h2 * 60 + m2) - (h1 * 60 + m1);
+  if (diffMin < 0) diffMin += 24 * 60;
+  return Math.round((diffMin / 60) * 100) / 100;
+}
+
+function getRoundedHours(horaIngreso, horaSalida) {
+  let calculated = calculateHours(horaIngreso, horaSalida);
+  if (calculated <= 0) return 0;
+
+  const minutosTrabajados = calculated * 60;
+  // Si el tiempo trabajado es inferior a 1:45 (105 min), computa 0 hs
+  if (minutosTrabajados < 105) return 0;
+
+  if (minutosTrabajados >= 210 && minutosTrabajados <= 255) {
+    return 4.0;
+  } else if (minutosTrabajados >= 105 && minutosTrabajados < 210) {
+    return 2.0;
+  }
+  return calculated;
+}
+
 // Función para normalizar texto (Mayúsculas y quitar acentos)
 function cleanText(text) {
   return (text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
@@ -108,7 +133,7 @@ function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
       const [regAnio, regMes] = r.fecha.split('-');
       return regAnio === anio && regMes === mes;
     })
-    .reduce((sum, r) => sum + r.horasTrabajadas, 0);
+    .reduce((sum, r) => sum + getRoundedHours(r.horaIngreso, r.horaSalida), 0);
 
   const horasComputables = (horasFisicas >= 4) ? Math.floor(horasFisicas / 4) * 4 : 0;
   const horasResto = Math.round((horasFisicas - horasComputables) * 100) / 100;
@@ -432,12 +457,14 @@ function renderMemberJornadasTable() {
   const sortedRegistros = [...memberRegistros].sort((a, b) => b.fecha.localeCompare(a.fecha));
 
   sortedRegistros.forEach(r => {
+    const roundedHs = r.estado === 'finalizado' ? getRoundedHours(r.horaIngreso, r.horaSalida) : 0;
     const row = document.createElement('tr');
     row.className = "hover:bg-slate-50 transition";
     row.innerHTML = `
       <td class="py-3 px-4 font-medium text-slate-700">${formatDateString(r.fecha)}</td>
       <td class="py-3 px-4 text-slate-700">${r.trabajadorNombre}</td>
-      <td class="py-3 px-4 text-slate-700">${r.horasTrabajadas ? r.horasTrabajadas.toFixed(2) + ' hs' : '-'}</td>
+      <td class="py-3 px-4 text-slate-500 font-mono text-[10px]">${r.horaIngreso} hs ${r.horaSalida ? `- ${r.horaSalida} hs` : ''}</td>
+      <td class="py-3 px-4 text-slate-700 font-bold">${r.estado === 'finalizado' ? roundedHs.toFixed(2) + ' hs' : '-'}</td>
       <td class="py-3 px-4 text-slate-500 max-w-xs truncate">${r.tarea}</td>
       <td class="py-3 px-4">
         ${r.estado === 'finalizado'

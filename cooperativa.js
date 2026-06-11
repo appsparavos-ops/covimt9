@@ -33,6 +33,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-cerrar-mes')?.addEventListener('click', simularCierreMensual);
   document.getElementById('btn-reabrir-mes')?.addEventListener('click', reabrirMes);
   document.getElementById('btn-descargar-csv')?.addEventListener('click', exportPlanillaCSV);
+
+  // Listener para actualizar horas redondeadas en tiempo real en el modal
+  document.getElementById('egreso-hora')?.addEventListener('input', updateRoundedHoursDisplay);
 });
 
 // --- AUTENTICACIÓN Y SEGURIDAD ---
@@ -505,12 +508,22 @@ async function registerIngreso() {
   const socioId = document.getElementById('ingreso-socio-filtered').value; // Ahora toma el ID del nuevo select
   const trabajadorNombre = document.getElementById('ingreso-trabajador').value;
   const fecha = document.getElementById('ingreso-fecha').value;
-  const horaIngreso = document.getElementById('ingreso-hora').value;
+  const horaIngresoRaw = document.getElementById('ingreso-hora').value;
   const tarea = document.getElementById('ingreso-tarea').value.trim();
 
   if (!trabajadorNombre) {
     showToast("No se seleccionó un trabajador habilitado.", "error");
     return;
+  }
+
+  // Lógica de redondeo: ±15 minutos de la hora exacta (ej: 7:45 -> 8:00, 8:15 -> 8:00)
+  let [h, m] = horaIngresoRaw.split(':').map(Number);
+  let horaIngreso = horaIngresoRaw;
+  if (m >= 45) {
+    h = (h + 1) % 24;
+    horaIngreso = `${String(h).padStart(2, '0')}:00`;
+  } else if (m <= 15) {
+    horaIngreso = `${String(h).padStart(2, '0')}:00`;
   }
 
   const id = 'reg-' + Date.now();
@@ -549,7 +562,8 @@ async function submitEgresoWithSignature() {
 
   const reg = registros.find(r => r.id === id);
   if (reg) {
-    const calculated = calculateHours(reg.horaIngreso, horaSalida);
+    const calculated = getRoundedHours(reg.horaIngreso, horaSalida);
+    
     if (calculated <= 0) {
       showToast("La hora de salida debe ser posterior a la de ingreso.", "error");
       return;
@@ -988,7 +1002,7 @@ function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
       const [regAnio, regMes] = r.fecha.split('-');
       return regAnio === anio && regMes === mes;
     })
-    .reduce((sum, r) => sum + r.horasTrabajadas, 0);
+    .reduce((sum, r) => sum + getRoundedHours(r.horaIngreso, r.horaSalida), 0);
 
   // Las horas computables deben ser múltiplos de 4. Si es menos de 4, se pierden.
   const horasComputables = (horasFisicas >= 4) ? Math.floor(horasFisicas / 4) * 4 : 0;
@@ -1327,6 +1341,38 @@ function openEgresoModal(registroId) {
 
   document.getElementById('modal-egreso-firma').classList.remove('hidden');
   setupSignatureCanvas();
+  updateRoundedHoursDisplay();
+}
+
+function getRoundedHours(horaIngreso, horaSalida) {
+  let calculated = calculateHours(horaIngreso, horaSalida);
+  if (calculated <= 0) return 0;
+
+  const minutosTrabajados = calculated * 60;
+
+  // Si el tiempo trabajado es inferior a 1:45 (105 min), computa 0 hs
+  if (minutosTrabajados < 105) return 0;
+
+  if (minutosTrabajados >= 210 && minutosTrabajados <= 255) {
+    // Caso ~4hs: Desde 3h 30m hasta 4h 15m -> Redondea a 4.0 hs
+    return 4.0;
+  } else if (minutosTrabajados >= 105 && minutosTrabajados < 210) {
+    // Caso ~2hs: Desde 1h 45m hasta 3h 30m -> Redondea a 2.0 hs
+    return 2.0;
+  }
+  return calculated;
+}
+
+function updateRoundedHoursDisplay() {
+  const id = document.getElementById('egreso-registro-id').value;
+  const horaSalida = document.getElementById('egreso-hora').value;
+  const reg = registros.find(r => r.id === id);
+  const lbl = document.getElementById('lbl-egreso-horas-calculadas');
+  
+  if (reg && horaSalida && lbl) {
+    const rounded = getRoundedHours(reg.horaIngreso, horaSalida);
+    lbl.textContent = `${rounded.toFixed(2)} hs`;
+  }
 }
 
 function closeEgresoModal() {
@@ -2308,8 +2354,8 @@ async function generarReporteDiarioPDF() {
     r.socioId,
     r.trabajadorNombre,
     r.horaIngreso,
-    r.horaSalida,
-    r.horasTrabajadas.toFixed(2),
+    r.horaSalida, // Display original exit time
+    getRoundedHours(r.horaIngreso, r.horaSalida).toFixed(2), // Display rounded hours
     { content: '', signature: r.firma }
   ]);
 
@@ -2396,7 +2442,7 @@ function descargarPDFJornada(recordId) {
   doc.text(`Fecha: ${formatDateString(reg.fecha)}`, 25, 91);
   doc.text(`Hora Entrada: ${reg.horaIngreso} Hs`, 25, 99);
   doc.text(`Hora Salida: ${reg.horaSalida} Hs`, 25, 107);
-  doc.text(`Total Horas Realizadas: ${reg.horasTrabajadas.toFixed(2)} Hs`, 25, 115);
+  doc.text(`Total Horas Realizadas: ${getRoundedHours(reg.horaIngreso, reg.horaSalida).toFixed(2)} Hs`, 25, 115);
   doc.text(`Tarea Realizada: ${reg.tarea}`, 25, 123);
 
   // Firma
