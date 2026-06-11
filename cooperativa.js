@@ -49,6 +49,10 @@ function checkAuthAndInit() {
   
   db = firebase.firestore();
 
+  // Forzamos persistencia de SESIÓN. Al cerrar el navegador/pestaña, se pierde el login.
+  // Esto evita entrar automáticamente sin credenciales tras haber cerrado la sesión anterior.
+  firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(err => console.error(err));
+
   // Escuchar estado de autenticación
   firebase.auth().onAuthStateChanged((user) => {
     const viewLogin = document.getElementById('view-login');
@@ -56,22 +60,23 @@ function checkAuthAndInit() {
 
     if (user) {
       // Usuario autenticado: mostrar app, ocultar login
-      viewLogin.classList.add('hidden');
-      appContainer.classList.remove('hidden');
-      showToast("Bienvenido al sistema.", "success");
+      viewLogin?.classList.add('hidden');
+      appContainer?.classList.remove('hidden');
       
       // Sincronizar Firestore
       startFirestoreSync();
     } else {
       // Usuario no autenticado: mostrar login, ocultar app
-      viewLogin.classList.remove('hidden');
-      appContainer.classList.add('hidden');
+      viewLogin?.classList.remove('hidden');
+      appContainer?.classList.add('hidden');
       
       // Limpiar listeners si es necesario
       socios = [];
       registros = [];
       saldosHistoricos = {};
     }
+    // Refrescar iconos para elementos que acaban de hacerse visibles
+    lucide.createIcons();
   });
 }
 
@@ -86,6 +91,7 @@ function handleLogin() {
 
   firebase.auth().signInWithEmailAndPassword(email, password)
     .then(() => {
+      showToast("Acceso correcto. Bienvenido.", "success");
       // Login exitoso, onAuthStateChanged se encarga de reestructurar la UI
       document.getElementById('login-email').value = '';
       document.getElementById('login-password').value = '';
@@ -274,7 +280,8 @@ async function clearCloudDatabase() {
 // --- ACCIONES ESCRITURA FIRESTORE ---
 async function saveSocio() {
   const id = document.getElementById('socio-id').value.trim();
-  const nombre = document.getElementById('socio-nombre').value.trim();
+  const nombre = document.getElementById('socio-nombre').value.trim().toUpperCase();
+  const fechaAlta = document.getElementById('socio-alta').value;
   const fechaNacimiento = document.getElementById('socio-nacimiento').value;
   const comision = normalizarComision(document.getElementById('socio-comision').value);
   const certificadoMedico = document.getElementById('socio-certificado-medico').checked;
@@ -288,10 +295,20 @@ async function saveSocio() {
     await db.collection('socios').doc(id).set({
       id,
       nombre,
+      fechaAlta,
+      fechaBaja: null,
       fechaNacimiento,
       comision,
       certificadoMedico,
-      nucleo: []
+      nucleo: [],
+      historialTitulares: [{
+        nombre,
+        fechaNacimiento,
+        comision,
+        certificadoMedico,
+        desde: fechaAlta,
+        hasta: null
+      }]
     });
     showToast("Socio titular guardado.", "success");
     document.getElementById('form-socio').reset();
@@ -300,22 +317,136 @@ async function saveSocio() {
   }
 }
 
-async function deleteSocio(socioId) {
-  if (confirm("¿Deseas eliminar este socio en la nube?")) {
-    try {
-      await db.collection('socios').doc(socioId).delete();
-      showToast("Socio eliminado.", "info");
-    } catch (err) {
-      showToast("Error al borrar socio: " + err.message, "error");
-    }
+/**
+ * Obtiene el estado y datos del titular de un socio para una fecha específica.
+ */
+function getSocioSnapshot(socio, targetDateStr) {
+  const targetDate = new Date(targetDateStr);
+  const fechaAlta = new Date(socio.fechaAlta);
+  const fechaBaja = socio.fechaBaja ? new Date(socio.fechaBaja) : null;
+
+  // Verificar si el socio existe/está activo en esa fecha
+  if (targetDate < fechaAlta) return null;
+  if (fechaBaja && targetDate >= fechaBaja) return null;
+
+  // Buscar quién era titular en esa fecha en el historial
+  const snapshot = socio.historialTitulares.find(h => {
+    const desde = new Date(h.desde);
+    const hasta = h.hasta ? new Date(h.hasta) : null;
+    return targetDate >= desde && (!hasta || targetDate < hasta);
+  });
+
+  return snapshot || socio; // Fallback al socio actual si no hay historial (legacy)
+}
+
+function openGestionEstadoModal(socioId, accion) {
+  const socio = socios.find(s => s.id === socioId);
+  if (!socio) return;
+
+  document.getElementById('gestion-socio-id').value = socioId;
+  document.getElementById('gestion-tipo-accion').value = accion;
+  document.getElementById('gestion-fecha-efectiva').value = new Date().toISOString().split('T')[0];
+
+  const title = document.getElementById('title-gestion-estado');
+  const btn = document.getElementById('btn-confirmar-gestion');
+  const containerTitular = document.getElementById('container-nuevo-titular');
+  const containerBaja = document.getElementById('container-baja-aviso');
+
+  if (accion === 'baja') {
+    title.innerText = "Dar de Baja Socio y Núcleo";
+    btn.innerText = "Confirmar Baja Definitiva";
+    btn.className = "px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition";
+    containerTitular.classList.add('hidden');
+    containerBaja.classList.remove('hidden');
+  } else {
+    title.innerText = "Cambiar Socio Titular";
+    btn.innerText = "Confirmar Cambio de Titular";
+    btn.className = "px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition";
+    containerTitular.classList.remove('hidden');
+    containerBaja.classList.add('hidden');
+
+    const select = document.getElementById('gestion-nuevo-titular');
+    select.innerHTML = socio.nucleo.map(f => `<option value="${f.nombre}">${f.nombre} (${f.parentesco})</option>`).join('');
   }
+
+  document.getElementById('modal-gestion-estado').classList.remove('hidden');
+}
+
+function closeGestionEstadoModal() {
+  document.getElementById('modal-gestion-estado').classList.add('hidden');
+}
+
+async function processGestionEstado() {
+  const socioId = document.getElementById('gestion-socio-id').value;
+  const accion = document.getElementById('gestion-tipo-accion').value;
+  const fechaEfectiva = document.getElementById('gestion-fecha-efectiva').value;
+  const socio = socios.find(s => s.id === socioId);
+
+  try {
+    if (accion === 'baja') {
+      await db.collection('socios').doc(socioId).update({ fechaBaja: fechaEfectiva });
+      showToast(`Socio ${socioId} dado de baja desde ${fechaEfectiva}`, "info");
+    } else {
+      const nuevoNombreTitular = document.getElementById('gestion-nuevo-titular').value;
+      const fechaEfectiva = document.getElementById('gestion-fecha-efectiva').value;
+      
+      // Buscar los datos del nuevo titular dentro del núcleo actual del socio
+      const nuevoTitularData = socio.nucleo.find(f => f.nombre === nuevoNombreTitular);
+      if (!nuevoTitularData) {
+        showToast("Error: Nuevo titular no encontrado en el núcleo familiar.", "error");
+        return;
+      }
+
+      // Guardar los datos del titular actual para moverlo al núcleo
+      const antiguoTitularData = {
+        nombre: socio.nombre,
+        fechaNacimiento: socio.fechaNacimiento,
+        comision: socio.comision,
+        certificadoMedico: socio.certificadoMedico,
+        parentesco: 'Ex-Titular' // Asignar un parentesco específico para el ex-titular
+      };
+      
+      // 1. Cerrar titularidad actual
+      const historial = [...(socio.historialTitulares || [])];
+      // Encontrar la entrada de titularidad activa (la que tiene 'hasta: null')
+      const activeTitularEntryIndex = historial.findIndex(entry => entry.hasta === null);
+      if (activeTitularEntryIndex !== -1) {
+        historial[activeTitularEntryIndex].hasta = fechaEfectiva;
+      }
+
+      // 2. Agregar nueva titularidad
+      historial.push({
+        nombre: nuevoTitularData.nombre,
+        fechaNacimiento: nuevoTitularData.fechaNacimiento,
+        comision: nuevoTitularData.comision,
+        certificadoMedico: nuevoTitularData.certificadoMedico,
+        desde: fechaEfectiva,
+        hasta: null
+      });
+
+      // 3. Construir el nuevo array del núcleo: quitar al nuevo titular y añadir al antiguo titular
+      let nuevoNucleo = socio.nucleo.filter(f => f.nombre !== nuevoNombreTitular);
+      nuevoNucleo.push(antiguoTitularData);
+
+      await db.collection('socios').doc(socioId).update({
+        nombre: nuevoTitularData.nombre,
+        fechaNacimiento: nuevoTitularData.fechaNacimiento,
+        comision: nuevoTitularData.comision, // Actualizar la comisión del socio principal
+        certificadoMedico: nuevoTitularData.certificadoMedico, // Actualizar el certificado médico del socio principal
+        nucleo: nuevoNucleo, // Actualizar el núcleo familiar
+        historialTitulares: historial
+      });
+      showToast("Titular cambiado exitosamente.", "success");
+    }
+    closeGestionEstadoModal();
+  } catch (err) { showToast("Error: " + err.message, "error"); }
 }
 
 async function saveNucleoMember() {
   const socioId = document.getElementById('nucleo-socio-id').value;
   const editIndexValue = document.getElementById('nucleo-edit-index').value;
   const editIndex = editIndexValue === '' ? -1 : parseInt(editIndexValue);
-  const nombre = document.getElementById('nucleo-nombre').value.trim();
+  const nombre = document.getElementById('nucleo-nombre').value.trim().toUpperCase();
   const fechaNacimiento = document.getElementById('nucleo-nacimiento').value;
   const parentesco = document.getElementById('nucleo-parentesco').value;
   const comision = normalizarComision(document.getElementById('nucleo-comision').value);
@@ -641,7 +772,7 @@ function parsearCSVSocios(texto) {
   for (const linea of lineas.slice(inicio)) {
     const cols = linea.split(';').map(c => c.trim());
     const id     = cols[0];
-    const nombre = cols[1] || '';
+    const nombre = (cols[1] || '').toUpperCase();
     if (!id || !nombre) continue;
 
     const fechaNacimiento = parsearFechaCSV(cols[2]);
@@ -650,7 +781,7 @@ function parsearCSVSocios(texto) {
     const nucleo = [];
     for (let i = 0; i < 10; i++) {
       const base = 3 + i * 3;
-      const nomFam     = (cols[base]     || '').trim();
+      const nomFam     = (cols[base]     || '').trim().toUpperCase();
       const parentesco = (cols[base + 1] || '').trim();
       const nacFam     = parsearFechaCSV(cols[base + 2] || '');
       if (nomFam) {
@@ -999,12 +1130,20 @@ function renderSociosList() {
         <button onclick="updateSocioComision('${s.id}')" class="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
           <i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Comisión
         </button>
+        <button onclick="openGestionEstadoModal('${s.id}', 'titular')" class="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Cambiar Titular
+        </button>
         <button onclick="openNucleoModal('${s.id}')" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1">
           <i data-lucide="plus" class="w-3.5 h-3.5"></i> Familiar
         </button>
-        <button onclick="deleteSocio('${s.id}')" class="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
-          <i data-lucide="trash" class="w-3.5 h-3.5"></i> Eliminar
-        </button>
+        <div class="flex gap-1 ml-auto">
+          <button onclick="openGestionEstadoModal('${s.id}', 'baja')" class="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+            <i data-lucide="user-minus" class="w-3.5 h-3.5"></i> Baja
+          </button>
+          <button onclick="deleteSocio('${s.id}')" class="px-2 py-1.5 text-slate-400 hover:text-red-600 transition" title="Eliminar definitivamente">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        </div>
       </div>` : '';
 
     const card = document.createElement('div');
@@ -1016,6 +1155,7 @@ function renderSociosList() {
             <span class="text-xs font-mono text-slate-400">ID: ${s.id}</span>
           </div>
           <div class="flex gap-1">
+            ${s.fechaBaja ? `<span class="bg-red-100 text-red-800 px-2 py-0.5 rounded text-[10px] font-bold border border-red-200">BAJA: ${formatDateString(s.fechaBaja)}</span>` : ''}
             ${badgeHabilidad}
             ${comisionBadge}
             ${exoneradoNucleo ? `<span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border border-blue-200 tracking-wider">NÚCLEO EXONERADO</span>` : ''}
@@ -1283,7 +1423,14 @@ function renderPlanilla() {
     return String(a.id).localeCompare(String(b.id));
   });
 
-  sociosOrdenados.forEach(s => {
+  sociosOrdenados.forEach(socioOriginal => {
+    // Obtener el estado del socio para el último día del mes consultado
+    const ultimoDiaMes = new Date(anio, mes, 0).toISOString().split('T')[0];
+    const s = getSocioSnapshot(socioOriginal, ultimoDiaMes);
+    
+    // Si el socio no existía o ya estaba de baja en ese mes, no lo mostramos
+    if (!s) return;
+
     const exonerado = esNucleoExonerado(s);
     const objetivo = obtenerObjetivoHorasSocio(s);
     const comisionAsignada = obtenerComisionAsignadaNucleo(s);
@@ -1560,9 +1707,13 @@ function renderDashboard() {
   if (!lblGoal) return;
   
   lblGoal.textContent = config.objetivoHoras;
+
+  // Usamos el mes/año seleccionado en la planilla para el dashboard o el actual
+  const anio = document.getElementById('planilla-anio')?.value || new Date().getFullYear().toString();
+  const mes = document.getElementById('planilla-mes')?.value || (new Date().getMonth() + 1).toString().padStart(2, '0');
   
-  const anio = "2026";
-  const mes = "06";
+  // Fecha de referencia para el snapshot (fin de mes)
+  const fechaReferencia = `${anio}-${mes}-28`; 
 
   let totalComputables = 0;
   let totalExonerados = 0;
@@ -1622,6 +1773,17 @@ function renderDashboard() {
     }
   }
   lucide.createIcons();
+}
+
+async function deleteSocio(socioId) {
+  if (confirm("¿Deseas eliminar permanentemente este socio y TODO su historial de la nube? Para cesar su actividad use 'Baja'.")) {
+    try {
+      await db.collection('socios').doc(socioId).delete();
+      showToast("Socio eliminado por completo.", "info");
+    } catch (err) {
+      showToast("Error al borrar socio: " + err.message, "error");
+    }
+  }
 }
 
 // --- MODALES AUXILIARES ---
@@ -1701,7 +1863,7 @@ function closeEditarSocioModal() {
 
 async function saveEditedSocio() {
   const socioId = document.getElementById('editar-socio-id').value;
-  const nombre = document.getElementById('editar-socio-nombre').value.trim();
+  const nombre = document.getElementById('editar-socio-nombre').value.trim().toUpperCase();
   const fechaNacimiento = document.getElementById('editar-socio-nacimiento').value;
   const certificadoMedico = document.getElementById('editar-socio-certificado-medico').checked;
 
