@@ -330,8 +330,8 @@ async function handleMemberLogin() {
   }
 }
 
-function handleMemberLogout() {
-  if (confirm("¿Deseas cerrar sesión en el portal de socios?")) {
+async function handleMemberLogout() {
+  if (await showConfirmModal("Salir del Portal", "¿Confirmas que deseas cerrar tu sesión de socio?")) {
     localStorage.removeItem('memberSocioId');
     localStorage.removeItem('memberSocioName');
     currentMemberSocioId = null;
@@ -383,6 +383,36 @@ async function loadMemberData(socioId) {
     showToast("Error al cargar tus datos: " + error.message, "error");
     console.error("Error loading member data:", error);
   }
+}
+
+function showConfirmModal(title, message) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modal-confirmation');
+    document.getElementById('conf-modal-title').textContent = title;
+    document.getElementById('conf-modal-message').textContent = message;
+    
+    const btnConfirm = document.getElementById('btn-conf-modal-confirm');
+    const btnCancel = document.getElementById('btn-conf-modal-cancel');
+    
+    const onConfirm = () => {
+      modal.classList.add('hidden');
+      cleanup();
+      resolve(true);
+    };
+    const onCancel = () => {
+      modal.classList.add('hidden');
+      cleanup();
+      resolve(false);
+    };
+    const cleanup = () => {
+      btnConfirm.removeEventListener('click', onConfirm);
+      btnCancel.removeEventListener('click', onCancel);
+    };
+    
+    btnConfirm.addEventListener('click', onConfirm, { once: true });
+    btnCancel.addEventListener('click', onCancel, { once: true });
+    modal.classList.remove('hidden');
+  });
 }
 
 function renderMemberDashboard() {

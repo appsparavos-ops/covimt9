@@ -4,8 +4,8 @@ let socios = [];
 let registros = [];
 let config = { objetivoHoras: 40 };
 let saldosHistoricos = {};
-let modoEdicion = false;
-const COMISIONES_VALIDAS = ["Ninguna", "Consejo Directivo", "Comisión Fiscal", "Comisión Fomento", "Comisión de Obra", "Comisión Electoral"];
+let modoEdicion = false; // Variable para controlar el modo edición
+let COMISIONES_VALIDAS = ["Ninguna"]; // Inicialmente solo "Ninguna", se cargará de Firebase
 const COMISIONES_LEGACY = {
   Directiva: "Consejo Directivo",
   Obra: "Comisión de Obra",
@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-cerrar-mes')?.addEventListener('click', simularCierreMensual);
   document.getElementById('btn-reabrir-mes')?.addEventListener('click', reabrirMes);
   document.getElementById('btn-descargar-csv')?.addEventListener('click', exportPlanillaCSV);
+  populateCommissionSelect('socio-comision'); // Populate initial socio commission select
 
   // Listener para actualizar horas redondeadas en tiempo real en el modal
   document.getElementById('egreso-hora')?.addEventListener('input', updateRoundedHoursDisplay);
@@ -109,8 +110,8 @@ function handleLogin() {
     });
 }
 
-function handleLogout() {
-  if (confirm("¿Confirmas que deseas cerrar sesión?")) {
+async function handleLogout() {
+  if (await showConfirmModal("Cerrar Sesión", "¿Confirmas que deseas cerrar tu sesión administrativa?")) {
     firebase.auth().signOut()
       .then(() => {
         showToast("Sesión cerrada.", "info");
@@ -176,6 +177,18 @@ function startFirestoreSync() {
     });
     renderPlanilla();
     renderDashboard();
+  });
+
+  // 5. Escuchar Comisiones
+  db.collection('comisiones').onSnapshot((snapshot) => {
+    const firebaseComisiones = snapshot.docs.map(doc => doc.data().nombre);
+    COMISIONES_VALIDAS = ["Ninguna", ...firebaseComisiones].sort(); // "Ninguna" siempre primero, luego alfabético
+    // Re-renderizar elementos que usan la lista de comisiones
+    renderSociosList(); // Para actualizar los badges de comisión
+    populateCommissionSelect('socio-comision'); // Actualizar selector en el formulario de registro
+    renderComisionesManagement(); // Para actualizar la lista en el modal de configuración
+  }, (error) => {
+    showToast("Error al sincronizar comisiones: " + error.message, "error");
   });
 }
 
@@ -261,7 +274,7 @@ async function seedInitialDataToCloud() {
 
 async function clearCloudDatabase() {
   if (!db) return;
-  if (confirm("¿Confirmas que deseas limpiar todos los datos de socios e historiales en Firebase?")) {
+  if (await showConfirmModal("LIMPIEZA TOTAL", "¿Estás seguro? Esta acción borrará permanentemente todos los socios, jornadas y saldos de la base de datos.")) {
     try {
       showToast("Vaciando base de datos...", "info");
       const snapSocios = await db.collection('socios').get();
@@ -297,6 +310,7 @@ async function saveSocio() {
   try {
     await db.collection('socios').doc(id).set({
       id,
+      // ... (other fields)
       nombre,
       fechaAlta,
       fechaBaja: null,
@@ -488,7 +502,7 @@ function updateNucleoComision(socioId, index) {
 }
 
 async function removeNucleoMember(socioId, index) {
-  if (confirm("¿Deseas eliminar a este familiar del núcleo?")) {
+  if (await showConfirmModal("Eliminar Familiar", "¿Confirmas que deseas eliminar a este integrante del núcleo familiar?")) {
     const idx = socios.findIndex(s => s.id === socioId);
     if (idx !== -1) {
       const socio = socios[idx];
@@ -551,23 +565,34 @@ async function registerIngreso() {
 }
 
 async function submitEgresoWithSignature() {
-  if (isCanvasBlank()) {
-    showToast("Es obligatorio firmar.", "error");
-    return;
-  }
-
   const id = document.getElementById('egreso-registro-id').value;
   const horaSalida = document.getElementById('egreso-hora').value;
-  const firma = signatureCanvas.toDataURL();
 
   const reg = registros.find(r => r.id === id);
   if (reg) {
     const calculated = getRoundedHours(reg.horaIngreso, horaSalida);
     
-    if (calculated <= 0) {
-      showToast("La hora de salida debe ser posterior a la de ingreso.", "error");
+    if (calculated === 0) {
+      if (await showConfirmModal("Jornada de 0.00 hs", "Esta jornada no alcanzó el mínimo computable de 1:45h. ¿Deseas ELIMINAR el ingreso? Si cancelas, la jornada seguirá activa para completar más horas.")) {
+        try {
+          await db.collection('registros').doc(id).delete();
+          showToast("Jornada eliminada.", "info");
+          closeEgresoModal();
+        } catch (err) {
+          showToast("Error al eliminar: " + err.message, "error");
+        }
+      } else {
+        closeEgresoModal();
+        showToast("Jornada mantenida en curso.", "info");
+      }
       return;
     }
+
+    if (isCanvasBlank()) {
+      showToast("Es obligatorio firmar.", "error");
+      return;
+    }
+    const firma = signatureCanvas.toDataURL();
 
     try {
       await db.collection('registros').doc(id).update({
@@ -585,7 +610,7 @@ async function submitEgresoWithSignature() {
 }
 
 async function deleteRecord(recordId) {
-  if (confirm("¿Deseas eliminar permanentemente esta jornada?")) {
+  if (await showConfirmModal("Eliminar Jornada", "¿Deseas borrar permanentemente este registro de trabajo?")) {
     try {
       await db.collection('registros').doc(recordId).delete();
       showToast("Jornada eliminada.", "info");
@@ -677,6 +702,11 @@ function applyModoEdicion() {
   if (btnTesoreria) {
     btnTesoreria.style.display = modoEdicion ? '' : 'none';
   }
+  // Sección restringida del modal de configuración
+  const restrictedSection = document.getElementById('config-restricted-section');
+  if (restrictedSection) {
+    restrictedSection.classList.toggle('hidden', !modoEdicion);
+  }
   // Re-renderizar la lista de socios para mostrar/ocultar botones
   renderSociosList();
 }
@@ -695,11 +725,7 @@ async function procesarCSV(event) {
   const anio = document.getElementById('planilla-anio')?.value || String(new Date().getFullYear());
   const mes  = document.getElementById('planilla-mes')?.value  || String(new Date().getMonth() + 1).padStart(2, '0');
 
-  if (!confirm(
-    `¿Deseas sobreescribir TODOS los socios en la base de datos con los datos del archivo "${file.name}"?\n` +
-    `Los saldos anteriores se cargarán para el período ${mes}/${anio}.\n\n` +
-    `Esta acción no se puede deshacer.`
-  )) {
+  if (!await showConfirmModal("Sincronizar CSV", `¿Deseas sobreescribir TODOS los socios con el archivo "${file.name}" para el período ${mes}/${anio}? Esta acción es irreversible.`)) {
     event.target.value = '';
     return;
   }
@@ -843,7 +869,7 @@ async function simularCierreMensual() {
   const anio = document.getElementById('planilla-anio').value;
   const mes = document.getElementById('planilla-mes').value;
 
-  if (!confirm(`¿Deseas realizar el cierre del mes ${mes}/${anio}? Esto arrastrará los saldos.`)) {
+  if (!await showConfirmModal("Cierre Mensual", `¿Confirmas el cierre del período ${mes}/${anio}? Se calcularán y arrastrarán los saldos para el mes siguiente.`)) {
     return;
   }
 
@@ -903,7 +929,7 @@ async function reabrirMes() {
   const anio = document.getElementById('planilla-anio').value;
   const mes = document.getElementById('planilla-mes').value;
 
-  if (!confirm(`¿Deseas reabrir el mes ${mes}/${anio}? Esto eliminará los saldos arrastrados para el siguiente período.`)) {
+  if (!await showConfirmModal("Reabrir Mes", `¿Deseas reabrir el mes ${mes}/${anio}? Esto eliminará los arrastres generados para el período siguiente.`)) {
     return;
   }
 
@@ -1072,6 +1098,7 @@ function switchTab(tabId) {
   if (tabId === 'tab-dashboard') renderDashboard();
   if (tabId === 'tab-socios') renderSociosList();
   if (tabId === 'tab-asistencia') setupAsistenciaForms();
+  if (tabId === 'tab-socios') populateCommissionSelect('socio-comision'); // Populate socio form commission select
   if (tabId === 'tab-planilla') renderPlanilla();
   if (tabId === 'tab-reportes') setupHistorial();
 }
@@ -1822,7 +1849,7 @@ function renderDashboard() {
 }
 
 async function deleteSocio(socioId) {
-  if (confirm("¿Deseas eliminar permanentemente este socio y TODO su historial de la nube? Para cesar su actividad use 'Baja'.")) {
+  if (await showConfirmModal("ELIMINAR SOCIO", "¿Confirmas la eliminación total de este socio y su historial? Para suspensiones temporales usa la opción 'Baja'.")) {
     try {
       await db.collection('socios').doc(socioId).delete();
       showToast("Socio eliminado por completo.", "info");
@@ -1846,6 +1873,7 @@ function openNucleoModal(socioId, index = null) {
   document.getElementById('nucleo-nacimiento').value = familiar ? familiar.fechaNacimiento : '';
   document.getElementById('nucleo-parentesco').value = familiar ? familiar.parentesco : '';
   document.getElementById('nucleo-comision').value = familiar ? normalizarComision(familiar.comision) : 'Ninguna';
+  populateCommissionSelect('nucleo-comision', familiar ? normalizarComision(familiar.comision) : 'Ninguna'); // Ensure nucleo-comision is populated
   document.getElementById('nucleo-certificado-medico').checked = familiar ? (familiar.certificadoMedico || false) : false;
 
   document.getElementById('modal-nucleo-title').innerHTML = `
@@ -1866,6 +1894,7 @@ function openConfigModal() {
   document.getElementById('campo-clave-edicion')?.classList.add('hidden');
   const inputClave = document.getElementById('clave-modo-edicion');
   if (inputClave) inputClave.value = '';
+  renderComisionesManagement();
   document.getElementById('modal-config').classList.remove('hidden');
 }
 
@@ -1882,7 +1911,7 @@ function openComisionModal(targetType, socioId, nucleoIndex, valorActual = 'Ning
   document.getElementById('comision-target-type').value = targetType;
   document.getElementById('comision-socio-id').value = socioId;
   document.getElementById('comision-nucleo-index').value = nucleoIndex;
-  document.getElementById('comision-valor').value = normalizarComision(valorActual);
+  populateCommissionSelect('comision-valor', normalizarComision(valorActual)); // Ensure comision-valor is populated
   document.getElementById('modal-comision').classList.remove('hidden');
 }
 
@@ -1958,7 +1987,103 @@ async function saveCommissionAssignment() {
   }
 }
 
+// --- GESTIÓN DE COMISIONES ---
+function populateCommissionSelect(selectElementId, selectedValue = 'Ninguna') {
+  const select = document.getElementById(selectElementId);
+  if (!select) return;
+
+  select.innerHTML = ''; // Limpiar opciones existentes
+
+  COMISIONES_VALIDAS.forEach(comision => {
+    const option = document.createElement('option');
+    option.value = comision;
+    option.textContent = comision;
+    select.appendChild(option);
+  });
+
+  // Seleccionar el valor actual o volver a 'Ninguna'
+  if (COMISIONES_VALIDAS.includes(selectedValue)) {
+    select.value = selectedValue;
+  } else {
+    select.value = 'Ninguna';
+  }
+}
+
+async function addCommission() {
+  if (!db) {
+    showToast("La base de datos no está lista. Reintenta en un momento.", "error");
+    return;
+  }
+
+  const input = document.getElementById('new-commission-name');
+  if (!input) return;
+  const nombreOriginal = input.value.trim();
+  const nombreNormalizado = cleanText(nombreOriginal);
+
+  if (!nombreNormalizado || nombreNormalizado === 'NINGUNA') {
+    showToast("El nombre no puede estar vacío o ser 'Ninguna'.", "error");
+    return;
+  }
+
+  // Validación de duplicados (Ignora mayúsculas/minúsculas y acentos usando cleanText)
+  const existe = COMISIONES_VALIDAS.some(c => cleanText(c) === nombreNormalizado);
+  if (existe) {
+    showToast("Esta comisión ya existe (nombre duplicado).", "info");
+    return;
+  }
+
+  try {
+    // Guardamos en Firebase usando el nombre normalizado como ID para evitar duplicados reales
+    await db.collection('comisiones').doc(nombreNormalizado).set({ nombre: nombreOriginal });
+    showToast(`Comisión "${nombreOriginal}" añadida.`, "success");
+    input.value = ''; 
+  } catch (err) {
+    showToast("Error al añadir comisión: " + err.message, "error");
+  }
+}
+
+async function deleteCommission(commissionName) {
+  if (commissionName === 'Ninguna') {
+    showToast("No se puede eliminar la opción por defecto.", "error");
+    return;
+  }
+
+  if (await showConfirmModal("Eliminar Comisión", `¿Estás seguro de eliminar la comisión "${commissionName}"?`)) {
+    try {
+      await db.collection('comisiones').doc(cleanText(commissionName)).delete();
+      showToast("Comisión eliminada.", "info");
+    } catch (err) {
+      showToast("Error al eliminar: " + err.message, "error");
+    }
+  }
+}
+
+function renderComisionesManagement() {
+  const container = document.getElementById('list-comisiones-management');
+  if (!container) return;
+
+  const comisionesFiltradas = COMISIONES_VALIDAS.filter(c => c !== 'Ninguna');
+
+  if (comisionesFiltradas.length === 0) {
+    container.innerHTML = `<p class="text-xs text-slate-400 italic">No hay comisiones creadas. Añade una arriba.</p>`;
+  } else {
+    container.innerHTML = comisionesFiltradas.map(c => `
+      <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
+        <span class="text-sm text-slate-700">${c}</span>
+        <button type="button" onclick="deleteCommission('${c}')" class="text-red-500 hover:text-red-700 transition" title="Eliminar comisión">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </button>
+      </div>
+    `).join('');
+  }
+  lucide.createIcons();
+}
+
 // --- UTILIDADES ---
+function cleanText(text) {
+  return (text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+}
+
 function normalizarComision(comision) {
   const valor = comision || 'Ninguna';
   const normalizado = COMISIONES_LEGACY[valor] || valor;
@@ -2456,6 +2581,36 @@ function descargarPDFJornada(recordId) {
 
   doc.save(`Comprobante_Jornada_${reg.socioId}_${reg.fecha}.pdf`);
   showToast("PDF de jornada generado con éxito.", "success");
+}
+
+function showConfirmModal(title, message) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modal-confirmation');
+    document.getElementById('conf-modal-title').textContent = title;
+    document.getElementById('conf-modal-message').textContent = message;
+    
+    const btnConfirm = document.getElementById('btn-conf-modal-confirm');
+    const btnCancel = document.getElementById('btn-conf-modal-cancel');
+    
+    const onConfirm = () => {
+      modal.classList.add('hidden');
+      cleanup();
+      resolve(true);
+    };
+    const onCancel = () => {
+      modal.classList.add('hidden');
+      cleanup();
+      resolve(false);
+    };
+    const cleanup = () => {
+      btnConfirm.removeEventListener('click', onConfirm);
+      btnCancel.removeEventListener('click', onCancel);
+    };
+    
+    btnConfirm.addEventListener('click', onConfirm, { once: true });
+    btnCancel.addEventListener('click', onCancel, { once: true });
+    modal.classList.remove('hidden');
+  });
 }
 
 function showToast(message, type = 'success') {
