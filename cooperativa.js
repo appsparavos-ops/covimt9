@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Listener para actualizar horas redondeadas en tiempo real en el modal
   document.getElementById('egreso-hora')?.addEventListener('input', updateRoundedHoursDisplay);
+  setupOfflineDetector();
 });
 
 // --- AUTENTICACIÓN Y SEGURIDAD ---
@@ -52,10 +53,24 @@ function checkAuthAndInit() {
   }
   
   db = firebase.firestore();
-
-  // Forzamos persistencia de SESIÓN. Al cerrar el navegador/pestaña, se pierde el login.
-  // Esto evita entrar automáticamente sin credenciales tras haber cerrado la sesión anterior.
-  firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(err => console.error(err));
+  
+  // Habilitar persistencia offline de Firestore
+  db.enablePersistence()
+    .then(() => {
+      console.log("Persistencia offline de Firestore habilitada.");
+    })
+    .catch((err) => {
+      if (err.code == 'failed-precondition') {
+        console.warn("La persistencia offline no pudo ser habilitada. Probablemente múltiples pestañas abiertas.");
+      } else if (err.code == 'unimplemented') {
+        console.warn("El navegador actual no soporta todas las características necesarias para la persistencia offline.");
+      } else {
+        console.error("Error al habilitar persistencia offline:", err);
+      }
+    });
+  
+  // Cambiamos a persistencia LOCAL para que la sesión sobreviva offline al cerrar el navegador
+  firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => console.error(err));
 
   // Escuchar estado de autenticación
   firebase.auth().onAuthStateChanged((user) => {
@@ -259,13 +274,21 @@ async function saveSocio() {
  * Obtiene el estado y datos del titular de un socio para una fecha específica.
  */
 function getSocioSnapshot(socio, targetDateStr) {
+  if (!socio) return null;
   const targetDate = new Date(targetDateStr);
-  const fechaAlta = new Date(socio.fechaAlta);
+  
+  // Manejar socios sin fecha de alta (ej. importados por CSV)
+  const fechaAlta = socio.fechaAlta ? new Date(socio.fechaAlta) : new Date('2000-01-01');
   const fechaBaja = socio.fechaBaja ? new Date(socio.fechaBaja) : null;
 
   // Verificar si el socio existe/está activo en esa fecha
   if (targetDate < fechaAlta) return null;
   if (fechaBaja && targetDate >= fechaBaja) return null;
+
+  // Si no hay historial (legacy o recien importado), devolvemos el socio actual
+  if (!socio.historialTitulares || socio.historialTitulares.length === 0) {
+    return { ...socio, id: socio.id };
+  }
 
   // Buscar quién era titular en esa fecha en el historial
   const snapshot = socio.historialTitulares.find(h => {
@@ -274,7 +297,7 @@ function getSocioSnapshot(socio, targetDateStr) {
     return targetDate >= desde && (!hasta || targetDate < hasta);
   });
 
-  return snapshot || socio; // Fallback al socio actual si no hay historial (legacy)
+  return snapshot ? { ...snapshot, id: socio.id } : socio; // Aseguramos que el snapshot tenga el ID del socio
 }
 
 function openGestionEstadoModal(socioId, accion) {
@@ -528,12 +551,12 @@ async function submitEgresoWithSignature() {
     const firma = signatureCanvas.toDataURL();
 
     try {
-      await db.collection('registros').doc(id).update({
+      await db.collection('registros').doc(id).set({
         horaSalida,
         horasTrabajadas: calculated,
         firma,
         estado: 'finalizado'
-      });
+      }, { merge: true });
       showToast(`Egreso registrado: ${calculated} hs guardadas.`, "success");
       registrarLog("Egreso Jornada", `FIN - Trabajador: ${reg.trabajadorNombre} (Socio: ${reg.socioId}). Salida: ${horaSalida}hs. Total computado: ${calculated} hs.`);
       closeEgresoModal();
@@ -708,7 +731,18 @@ async function procesarCSV(event) {
       let batchW = db.batch();
       c = 0;
       for (const { socio } of datos) {
-        batchW.set(db.collection('socios').doc(socio.id), socio);
+        const socioData = {
+          ...socio,
+          fechaAlta: socio.fechaAlta || `${anio}-${mes}-01`,
+          historialTitulares: socio.historialTitulares || [{
+            nombre: socio.nombre,
+            fechaNacimiento: socio.fechaNacimiento,
+            comision: socio.comision || 'Ninguna',
+            desde: socio.fechaAlta || `${anio}-${mes}-01`,
+            hasta: null
+          }]
+        };
+        batchW.set(db.collection('socios').doc(socio.id), socioData);
         if (++c === 499) { await batchW.commit(); batchW = db.batch(); c = 0; }
       }
       if (c > 0) await batchW.commit();
@@ -965,10 +999,11 @@ function obtenerObjetivoHorasSocio(socio) {
 }
 
 function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
+  const sIdSearch = String(socioId).trim();
   const horasFisicas = registros
-    .filter(r => r.socioId === socioId && r.estado === 'finalizado')
+    .filter(r => String(r.socioId).trim() === sIdSearch && r.estado === 'finalizado')
     .filter(r => {
-      const [regAnio, regMes] = r.fecha.split('-');
+      const [regAnio, regMes] = (r.fecha || "").split('-');
       return regAnio === anio && regMes === mes;
     })
     .reduce((sum, r) => sum + getRoundedHours(r.horaIngreso, r.horaSalida), 0);
@@ -2034,6 +2069,21 @@ function renderComisionesManagement() {
 }
 
 // --- UTILIDADES ---
+function setupOfflineDetector() {
+  const updateStatus = () => {
+    const icon = document.getElementById('offline-icon');
+    if (!icon) return;
+    if (!navigator.onLine) {
+      icon.classList.remove('hidden');
+    } else {
+      icon.classList.add('hidden');
+    }
+  };
+  window.addEventListener('online', updateStatus);
+  window.addEventListener('offline', updateStatus);
+  updateStatus();
+}
+
 async function registrarLog(accion, detalle) {
   if (!db) return;
   const user = firebase.auth().currentUser;
@@ -2065,6 +2115,7 @@ function formatDateString(str) {
 }
 
 function calculateHours(ingreso, salida) {
+  if (!ingreso || !salida) return 0;
   const [h1, m1] = ingreso.split(':').map(Number);
   const [h2, m2] = salida.split(':').map(Number);
   let diffMin = (h2 * 60 + m2) - (h1 * 60 + m1);
