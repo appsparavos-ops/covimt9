@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COVIMT 9 - Bitácora del Sistema</title>
+  <link rel="icon" type="image/png" href="pinos.png">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <!-- Librerías para Generación de PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
+  <script src="firebaseConfig.js"></script>
+  <script src="bitacora.js" defer></script>
+  <script>
+    tailwind.config = { theme: { extend: { fontFamily: { sans: ['Outfit', 'sans-serif'] }, colors: { brand: { 50: '#f0fdf4', 100: '#dcfce7', 600: '#059669', 700: '#047857', 800: '#065f46' } } } } }
+  </script>
+</head>
+<body class="h-full flex flex-col font-sans antialiased text-slate-800 bg-slate-50/50">
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10000] flex flex-col items-center gap-3 pointer-events-none w-full max-w-sm"></div>
+
+  <header class="bg-slate-900 text-white shadow-md p-4">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <img src="pinos.png" class="h-8 w-8">
+        <h1 class="text-lg font-bold">COVIMT 9 - Bitácora de Auditoría</h1>
+      </div>
+      <button onclick="location.href='index.html'" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-lg transition border border-slate-700">Volver al Panel</button>
+    </div>
+  </header>
+
+  <main class="flex-grow max-w-7xl w-full mx-auto p-6 overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap gap-4 items-center">
+        <div class="flex items-center gap-2">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400"></i>
+          <input type="text" id="filter-log" placeholder="Filtrar por usuario o acción..." class="text-sm bg-transparent border-none focus:ring-0 w-64" oninput="renderBitacora()">
+        </div>
+        <div class="flex items-center gap-2 border-l border-slate-200 pl-4">
+          <label for="filter-date-from" class="text-[10px] font-bold text-slate-400 uppercase">Desde:</label>
+          <input type="date" id="filter-date-from" class="text-xs rounded-lg border border-slate-200 p-1.5 focus:ring-2 focus:ring-brand-500 outline-none" onchange="renderBitacora()">
+        </div>
+        <div class="flex items-center gap-2">
+          <label for="filter-date-to" class="text-[10px] font-bold text-slate-400 uppercase">Hasta:</label>
+          <input type="date" id="filter-date-to" class="text-xs rounded-lg border border-slate-200 p-1.5 focus:ring-2 focus:ring-brand-500 outline-none" onchange="renderBitacora()">
+        </div>
+        <div class="ml-auto flex items-center gap-3">
+          <button onclick="clearBitacora()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-2 shadow-sm">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Limpiar Bitácora
+          </button>
+          <button onclick="exportBitacoraPDF()" class="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-2 shadow-sm">
+            <i data-lucide="file-text" class="w-4 h-4"></i> Exportar PDF
+          </button>
+          <span class="text-xs text-slate-400">Últimos 200 eventos</span>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-slate-100">
+          <thead class="bg-slate-50">
+            <tr class="text-left text-xs font-semibold text-slate-400 uppercase">
+              <th class="py-3 px-6">Fecha y Hora</th>
+              <th class="py-3 px-6">Usuario</th>
+              <th class="py-3 px-6">Acción</th>
+              <th class="py-3 px-6">Detalle del Movimiento</th>
+            </tr>
+          </thead>
+          <tbody id="tbl-bitacora" class="divide-y divide-slate-100 text-sm">
+            <tr><td colspan="4" class="p-8 text-center text-slate-400 italic">Cargando registros...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal de Confirmación Genérico -->
+  <div id="modal-confirmation" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100">
+      <div class="bg-slate-800 text-white p-4">
+        <h3 id="conf-modal-title" class="font-bold text-sm">Confirmar acción</h3>
+      </div>
+      <div class="p-6">
+        <p id="conf-modal-message" class="text-slate-600 text-sm leading-relaxed"></p>
+        <!-- Contenedor para Prompt de Password -->
+        <div id="conf-modal-prompt-container" class="mt-4 hidden">
+          <input type="password" id="conf-modal-input" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Ingrese clave de administrador...">
+        </div>
+      </div>
+      <div class="bg-slate-50 px-6 py-4 flex justify-end gap-3">
+        <button id="btn-conf-modal-cancel" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition hover:bg-slate-100">Cancelar</button>
+        <button id="btn-conf-modal-confirm" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition shadow-sm">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -317,6 +317,7 @@ async function handleMemberLogin() {
     localStorage.setItem('memberSocioName', socioData.nombre); // Store name for display
 
     showToast(`Bienvenido, ${socioData.nombre}.`, "success");
+    registrarLog("Acceso Portal Socio", `LOGIN - El socio ${socioData.nombre} (ID: ${currentMemberSocioId}) ingresó a su portal.`);
     showMemberPortal();
     loadMemberData(currentMemberSocioId);
 
@@ -332,6 +333,7 @@ async function handleMemberLogin() {
 
 async function handleMemberLogout() {
   if (await showConfirmModal("Salir del Portal", "¿Confirmas que deseas cerrar tu sesión de socio?")) {
+    registrarLog("Salida Portal Socio", `LOGOUT - El socio ID: ${currentMemberSocioId} cerró su sesión.`);
     localStorage.removeItem('memberSocioId');
     localStorage.removeItem('memberSocioName');
     currentMemberSocioId = null;
@@ -415,6 +417,21 @@ function showConfirmModal(title, message) {
   });
 }
 
+async function registrarLog(accion, detalle) {
+  if (!db) return;
+  // En el portal de socio, el "user" de Firebase es socios@coope.com, 
+  // por eso usamos el detalle para especificar qué socio es.
+  const logEntry = {
+    fecha: new Date().toISOString(),
+    usuario: "Portal de Socios",
+    accion: accion,
+    detalle: detalle
+  };
+  try {
+    await db.collection('bitacora').add(logEntry);
+  } catch (e) { console.error("Error bitácora:", e); }
+}
+
 function renderMemberDashboard() {
   if (!currentMemberSocioId || memberSocios.length === 0) return;
 
@@ -494,6 +511,7 @@ function renderMemberJornadasTable() {
       <td class="py-3 px-4 font-medium text-slate-700">${formatDateString(r.fecha)}</td>
       <td class="py-3 px-4 text-slate-700">${r.trabajadorNombre}</td>
       <td class="py-3 px-4 text-slate-500 font-mono text-[10px]">${r.horaIngreso} hs ${r.horaSalida ? `- ${r.horaSalida} hs` : ''}</td>
+      <td class="py-3 px-4 text-slate-600 italic text-[11px]">${r.responsable || '-'}</td>
       <td class="py-3 px-4 text-slate-700 font-bold">${r.estado === 'finalizado' ? roundedHs.toFixed(2) + ' hs' : '-'}</td>
       <td class="py-3 px-4 text-slate-500 max-w-xs truncate">${r.tarea}</td>
       <td class="py-3 px-4">

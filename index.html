@@ -150,6 +150,9 @@
 
           <!-- Actions -->
           <div class="flex items-center gap-2">
+            <button id="btn-nav-bitacora" onclick="location.href='bitacora.html'" class="hidden p-2 hover:bg-brand-700 rounded-lg text-emerald-300 transition" title="Ver Bitácora de Auditoría">
+              <i data-lucide="scroll-text" class="w-5 h-5"></i>
+            </button>
             <button onclick="openConfigModal()" class="p-2 hover:bg-brand-700 rounded-lg transition" title="Configurar Objetivo Mensual">
               <i data-lucide="settings" class="w-5 h-5 text-white"></i>
             </button>
@@ -185,15 +188,15 @@
       </button>
     </div>
 
-    <!-- Banner para Sembrar Datos Iniciales -->
-    <div id="seed-banner" class="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-3 hidden">
+    <!-- Banner para Base de Datos Vacía -->
+    <div id="empty-db-banner" class="bg-blue-50 border-b border-blue-200 text-blue-900 px-4 py-3 hidden">
       <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div class="flex items-center gap-2 text-sm">
-          <i data-lucide="database-backup" class="w-5 h-5 text-amber-600"></i>
-          <span>La base de datos en Firebase está vacía. ¿Deseas precargar los socios y jornadas de prueba del reglamento interno?</span>
+          <i data-lucide="cloud-off" class="w-5 h-5 text-blue-600"></i>
+          <span>La base de datos está vacía. Para comenzar, habilite el <b>Modo Edición</b> en configuración y cargue el listado de socios.</span>
         </div>
-        <button onclick="seedInitialDataToCloud()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition">
-          Cargar Datos Semilla
+        <button onclick="sincronizarDesdeCSV()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-2">
+          <i data-lucide="upload-cloud" class="w-4 h-4"></i> Carga Masiva (CSV)
         </button>
       </div>
     </div>
@@ -358,6 +361,10 @@
               <i data-lucide="log-in" class="w-5 h-5 text-brand-600"></i> Fichar Ingreso (Entrada)
             </h3>
             <form id="form-ingreso" class="space-y-4" onsubmit="event.preventDefault(); registerIngreso();">
+              <div class="form-group">
+                <label for="ingreso-responsable" class="block text-xs font-semibold text-slate-500 mb-1">Responsable de Jornada (Capataz/Delegado)</label>
+                <input type="text" id="ingreso-responsable" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="Nombre del responsable">
+              </div>
               <div class="form-group">
                 <label for="filter-socio-id" class="block text-sm font-medium text-slate-700 mb-1">Filtrar Socio por Numero:</label>
                 <input type="text" id="filter-socio-id" placeholder="Ej: 002, 022 o 222" class="block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm">
@@ -746,6 +753,20 @@
                 <!-- Las comisiones se renderizarán aquí dinámicamente -->
                 <p class="text-xs text-slate-400">Cargando comisiones...</p>
               </div>
+            </div>
+
+            <!-- Botón Acceso Bitácora -->
+            <div class="border-t border-slate-100 pt-4">
+              <h4 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <i data-lucide="shield-alert" class="w-4 h-4 text-slate-600"></i> Auditoría
+              </h4>
+              <button type="button" onclick="location.href='bitacora.html'" class="w-full flex items-center justify-between p-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition shadow-sm">
+                <div class="flex items-center gap-2">
+                  <i data-lucide="scroll-text" class="w-4 h-4 text-emerald-400"></i>
+                  <span class="text-sm font-semibold">Ver Bitácora del Sistema</span>
+                </div>
+                <i data-lucide="chevron-right" class="w-4 h-4 opacity-50"></i>
+              </button>
             </div>
           </div>
 

@@ -130,11 +130,11 @@ function startFirestoreSync() {
   db.collection('socios').onSnapshot((snapshot) => {
     socios = snapshot.docs.map(doc => doc.data());
     
-    // Mostrar Banner Semilla si la base de datos está vacía
+    // Mostrar Banner de DB Vacía si no hay socios
     if (socios.length === 0) {
-      document.getElementById('seed-banner').classList.remove('hidden');
+      document.getElementById('empty-db-banner').classList.remove('hidden');
     } else {
-      document.getElementById('seed-banner').classList.add('hidden');
+      document.getElementById('empty-db-banner').classList.add('hidden');
     }
 
     renderSociosList();
@@ -190,86 +190,6 @@ function startFirestoreSync() {
   }, (error) => {
     showToast("Error al sincronizar comisiones: " + error.message, "error");
   });
-}
-
-// --- CARGA DE DATOS DE PRUEBA EN CLOUD (SEMILLA) ---
-const mockSocios = [
-  {
-    id: "1.234.567-8",
-    nombre: "Carlos Pérez",
-    vivienda: "Vivienda 12",
-    fechaNacimiento: "1985-05-15",
-    comision: "Comisión de Obra",
-    nucleo: [
-      { nombre: "Luis Pérez", fechaNacimiento: "2012-08-20", parentesco: "Hijo/a", comision: "Ninguna" },
-      { nombre: "María Gómez", fechaNacimiento: "1988-12-01", parentesco: "Cónyuge/Pareja", comision: "Comisión Fomento" }
-    ]
-  },
-  {
-    id: "4.567.890-1",
-    nombre: "Ana Rodríguez",
-    vivienda: "Vivienda 45",
-    fechaNacimiento: "1992-04-10",
-    comision: "Consejo Directivo",
-    nucleo: [
-      { nombre: "Jorge Martínez", fechaNacimiento: "1990-11-25", parentesco: "Cónyuge/Pareja", comision: "Comisión de Obra" }
-    ]
-  },
-  {
-    id: "2.345.678-9",
-    nombre: "Julio Méndez",
-    vivienda: "Vivienda 03",
-    fechaNacimiento: "1950-01-01",
-    comision: "Ninguna",
-    nucleo: []
-  }
-];
-
-const mockFirma = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80' viewBox='0 0 200 80'><path d='M10,45 Q40,15 70,55 T120,35 T170,55' fill='none' stroke='black' stroke-width='2'/></svg>";
-
-const mockRegistros = [
-  {
-    id: "reg-1",
-    socioId: "1.234.567-8",
-    trabajadorNombre: "Carlos Pérez",
-    fecha: "2026-06-01",
-    horaIngreso: "08:00",
-    horaSalida: "12:30",
-    horasTrabajadas: 4.5,
-    tarea: "Acopio de materiales en el obrador general",
-    firma: mockFirma,
-    estado: "finalizado"
-  },
-  {
-    id: "reg-2",
-    socioId: "4.567.890-1",
-    trabajadorNombre: "Ana Rodríguez",
-    fecha: "2026-06-03",
-    horaIngreso: "14:00",
-    horaSalida: "18:00",
-    horasTrabajadas: 4.0,
-    tarea: "Organización de documentación en oficina",
-    firma: mockFirma,
-    estado: "finalizado"
-  }
-];
-
-async function seedInitialDataToCloud() {
-  if (!db) return;
-  try {
-    showToast("Subiendo datos semilla...", "info");
-    for (const s of mockSocios) {
-      await db.collection('socios').doc(s.id).set(s);
-    }
-    for (const r of mockRegistros) {
-      await db.collection('registros').doc(r.id).set(r);
-    }
-    await db.collection('config').doc('metaGlobal').set(normalizarConfig({ objetivoHoras: 40 }));
-    showToast("Datos semilla subidos correctamente.", "success");
-    document.getElementById('seed-banner').classList.add('hidden');
-  } catch (err) {
-    showToast("Error al sembrar datos: " + err.message, "error");
-  }
 }
 
 async function clearCloudDatabase() {
@@ -328,6 +248,7 @@ async function saveSocio() {
       }]
     });
     showToast("Socio titular guardado.", "success");
+    registrarLog("Creación/Edición Socio", `SOCIO TITULAR: ${nombre} (ID: ${id}). Fecha de alta: ${fechaAlta}.`);
     document.getElementById('form-socio').reset();
   } catch (err) {
     showToast("Error al guardar socio: " + err.message, "error");
@@ -403,10 +324,12 @@ async function processGestionEstado() {
     if (accion === 'baja') {
       await db.collection('socios').doc(socioId).update({ fechaBaja: fechaEfectiva });
       showToast(`Socio ${socioId} dado de baja desde ${fechaEfectiva}`, "info");
+      registrarLog("Baja de Socio", `BAJA DEFINITIVA del Socio ID: ${socioId} (${socio.nombre}) a partir del día ${fechaEfectiva}.`);
     } else {
       const nuevoNombreTitular = document.getElementById('gestion-nuevo-titular').value;
       const fechaEfectiva = document.getElementById('gestion-fecha-efectiva').value;
       
+      const antiguoTitular = socio.nombre;
       // Buscar los datos del nuevo titular dentro del núcleo actual del socio
       const nuevoTitularData = socio.nucleo.find(f => f.nombre === nuevoNombreTitular);
       if (!nuevoTitularData) {
@@ -454,6 +377,7 @@ async function processGestionEstado() {
         historialTitulares: historial
       });
       showToast("Titular cambiado exitosamente.", "success");
+      registrarLog("Cambio de Titular", `Socio ID: ${socioId}. CAMBIO DE TITULARIDAD el ${fechaEfectiva}. Titular saliente: ${antiguoTitular}. Titular entrante: ${nuevoNombreTitular}.`);
     }
     closeGestionEstadoModal();
   } catch (err) { showToast("Error: " + err.message, "error"); }
@@ -482,6 +406,7 @@ async function saveNucleoMember() {
     try {
       await db.collection('socios').doc(socioId).update({ nucleo: nuevoNucleo });
       showToast(editIndex >= 0 ? "Familiar actualizado." : "Familiar agregado al núcleo.", "success");
+      registrarLog(editIndex >= 0 ? "Edición Familiar" : "Adición Familiar", `FAMILIAR: ${nombre} (${parentesco}) en el núcleo del Socio ID: ${socioId}.`);
       closeNucleoModal();
     } catch (err) {
       showToast("Error al guardar familiar: " + err.message, "error");
@@ -511,6 +436,7 @@ async function removeNucleoMember(socioId, index) {
       try {
         await db.collection('socios').doc(socioId).update({ nucleo: nuevoNucleo });
         showToast("Miembro removido.", "info");
+        registrarLog("Eliminación Familiar", `Se eliminó al familiar con índice ${index} del núcleo del Socio ID: ${socioId}.`);
       } catch (err) {
         showToast("Error al remover familiar: " + err.message, "error");
       }
@@ -522,6 +448,7 @@ async function registerIngreso() {
   const socioId = document.getElementById('ingreso-socio-filtered').value; // Ahora toma el ID del nuevo select
   const trabajadorNombre = document.getElementById('ingreso-trabajador').value;
   const fecha = document.getElementById('ingreso-fecha').value;
+  const responsable = document.getElementById('ingreso-responsable').value.trim();
   const horaIngresoRaw = document.getElementById('ingreso-hora').value;
   const tarea = document.getElementById('ingreso-tarea').value.trim();
 
@@ -546,6 +473,7 @@ async function registerIngreso() {
     socioId,
     trabajadorNombre,
     fecha,
+    responsable,
     horaIngreso,
     horaSalida: '',
     horasTrabajadas: 0,
@@ -557,7 +485,11 @@ async function registerIngreso() {
   try {
     await db.collection('registros').doc(id).set(nuevoIngreso);
     showToast("Ingreso marcado.", "success");
+    
+    // Reiniciar formulario manteniendo al responsable
+    const currentResp = document.getElementById('ingreso-responsable').value;
     document.getElementById('form-ingreso').reset();
+    document.getElementById('ingreso-responsable').value = currentResp;
     setupAsistenciaForms();
   } catch (err) {
     showToast("Error al registrar ingreso: " + err.message, "error");
@@ -575,6 +507,7 @@ async function submitEgresoWithSignature() {
     if (calculated === 0) {
       if (await showConfirmModal("Jornada de 0.00 hs", "Esta jornada no alcanzó el mínimo computable de 1:45h. ¿Deseas ELIMINAR el ingreso? Si cancelas, la jornada seguirá activa para completar más horas.")) {
         try {
+          registrarLog("Eliminación Ingreso", `CANCELACIÓN - Jornada ID: ${id} de ${reg.trabajadorNombre} (Socio: ${reg.socioId}) eliminada por tiempo insuficiente (0.00 hs).`);
           await db.collection('registros').doc(id).delete();
           showToast("Jornada eliminada.", "info");
           closeEgresoModal();
@@ -602,6 +535,7 @@ async function submitEgresoWithSignature() {
         estado: 'finalizado'
       });
       showToast(`Egreso registrado: ${calculated} hs guardadas.`, "success");
+      registrarLog("Egreso Jornada", `FIN - Trabajador: ${reg.trabajadorNombre} (Socio: ${reg.socioId}). Salida: ${horaSalida}hs. Total computado: ${calculated} hs.`);
       closeEgresoModal();
     } catch (err) {
       showToast("Error al registrar egreso: " + err.message, "error");
@@ -612,6 +546,7 @@ async function submitEgresoWithSignature() {
 async function deleteRecord(recordId) {
   if (await showConfirmModal("Eliminar Jornada", "¿Deseas borrar permanentemente este registro de trabajo?")) {
     try {
+      registrarLog("Eliminación Registro", `Jornada ID: ${recordId} borrada manualmente.`);
       await db.collection('registros').doc(recordId).delete();
       showToast("Jornada eliminada.", "info");
     } catch (err) {
@@ -643,8 +578,8 @@ async function saveConfig() {
 
       modoEdicion = nuevoModo;
       applyModoEdicion();
+      registrarLog("Acceso Administrador", `Meta: ${obj} hs. Modo Edición: ${modoEdicion}.`);
       showToast(modoEdicion ? 'Configuración guardada. Modo Edición activado.' : 'Configuración guardada. Modo Edición desactivado.', 'success');
-      closeConfigModal();
     } catch (err) {
       showToast('Error al guardar configuración: ' + err.message, 'error');
     }
@@ -701,6 +636,11 @@ function applyModoEdicion() {
   const btnTesoreria = document.getElementById('btn-reporte-tesoreria');
   if (btnTesoreria) {
     btnTesoreria.style.display = modoEdicion ? '' : 'none';
+  }
+  // Botón de bitácora en la navegación superior
+  const btnNavBitacora = document.getElementById('btn-nav-bitacora');
+  if (btnNavBitacora) {
+    btnNavBitacora.classList.toggle('hidden', !modoEdicion);
   }
   // Sección restringida del modal de configuración
   const restrictedSection = document.getElementById('config-restricted-section');
@@ -789,6 +729,7 @@ async function procesarCSV(event) {
       }
       if (c > 0) await batchS.commit();
 
+      registrarLog("Sincronización CSV", `CARGA MASIVA - Archivo: ${file.name}. Período: ${mes}/${anio}. Se sincronizaron ${datos.length} socios.`);
       showToast(`✓ ${datos.length} socios sincronizados correctamente para ${mes}/${anio}.`, 'success');
     } catch (err) {
       showToast('Error al sincronizar: ' + err.message, 'error');
@@ -916,6 +857,7 @@ async function simularCierreMensual() {
         tesoreriaAcumulada: (hist.tesoreriaAcumulada || 0) + pasajeATesoreria
       });
     }
+    registrarLog("Cierre Mensual", `CIERRE DE PERÍODO: ${mes}/${anio}. Se generaron los saldos y arrastres para ${sigMesStr}/${sigAnioStr}.`);
     showToast(`Cierre procesado. Período ${sigMesStr}/${sigAnioStr} habilitado.`, "success");
     document.getElementById('planilla-anio').value = sigAnioStr;
     document.getElementById('planilla-mes').value = sigMesStr;
@@ -954,6 +896,7 @@ async function reabrirMes() {
         await docRef.delete();
       }
     }
+    registrarLog("Reapertura Mes", `REAPERTURA - Se reabrió el período ${mes}/${anio}. Se eliminaron los arrastres previos para el mes siguiente.`);
     showToast(`Mes ${mes}/${anio} reabierto. Saldos del período ${sigMesStr}/${sigAnioStr} eliminados.`, "success");
     renderPlanilla(); // Re-renderizar la planilla para reflejar los cambios
   } catch (err) {
@@ -1852,6 +1795,7 @@ async function deleteSocio(socioId) {
   if (await showConfirmModal("ELIMINAR SOCIO", "¿Confirmas la eliminación total de este socio y su historial? Para suspensiones temporales usa la opción 'Baja'.")) {
     try {
       await db.collection('socios').doc(socioId).delete();
+      registrarLog("Eliminación Total Socio", `Socio ID: ${socioId} borrado permanentemente de la base de datos.`);
       showToast("Socio eliminado por completo.", "info");
     } catch (err) {
       showToast("Error al borrar socio: " + err.message, "error");
@@ -1970,17 +1914,25 @@ async function saveCommissionAssignment() {
   if (!socio) return;
 
   try {
+    let personaNombre = '';
+    let personaTipo = '';
+
     if (targetType === 'socio') {
+      personaNombre = socio.nombre;
+      personaTipo = 'TITULAR';
       await db.collection('socios').doc(socioId).update({ comision });
     } else {
       const index = parseInt(nucleoIndex);
       const nuevoNucleo = [...(socio.nucleo || [])];
       if (!nuevoNucleo[index]) return;
+      personaNombre = nuevoNucleo[index].nombre;
+      personaTipo = 'FAMILIAR';
       nuevoNucleo[index] = { ...nuevoNucleo[index], comision };
       await db.collection('socios').doc(socioId).update({ nucleo: nuevoNucleo });
     }
 
     showToast(comision === 'Ninguna' ? "Asignación a comisión dada de baja." : "Asignación a comisión guardada.", "success");
+    registrarLog("Gestión Comisiones", `ASIGNACIÓN - Comisión: ${comision} asignada a ${personaNombre} (${personaTipo}) del Socio ID: ${socioId}.`);
     closeComisionModal();
   } catch (err) {
     showToast("Error al guardar comisión: " + err.message, "error");
@@ -2034,6 +1986,7 @@ async function addCommission() {
 
   try {
     // Guardamos en Firebase usando el nombre normalizado como ID para evitar duplicados reales
+    registrarLog("Gestión Comisiones", `Nueva comisión creada: ${nombreOriginal}`);
     await db.collection('comisiones').doc(nombreNormalizado).set({ nombre: nombreOriginal });
     showToast(`Comisión "${nombreOriginal}" añadida.`, "success");
     input.value = ''; 
@@ -2051,6 +2004,7 @@ async function deleteCommission(commissionName) {
   if (await showConfirmModal("Eliminar Comisión", `¿Estás seguro de eliminar la comisión "${commissionName}"?`)) {
     try {
       await db.collection('comisiones').doc(cleanText(commissionName)).delete();
+      registrarLog("Gestión Comisiones", `Comisión eliminada: ${commissionName}`);
       showToast("Comisión eliminada.", "info");
     } catch (err) {
       showToast("Error al eliminar: " + err.message, "error");
@@ -2080,6 +2034,20 @@ function renderComisionesManagement() {
 }
 
 // --- UTILIDADES ---
+async function registrarLog(accion, detalle) {
+  if (!db) return;
+  const user = firebase.auth().currentUser;
+  const logEntry = {
+    fecha: new Date().toISOString(), // ISO para ordenamiento fácil
+    usuario: user ? (user.email || "Admin") : "Sistema",
+    accion: accion,
+    detalle: detalle
+  };
+  try {
+    await db.collection('bitacora').add(logEntry);
+  } catch (e) { console.error("Error bitácora:", e); }
+}
+
 function cleanText(text) {
   return (text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
 }
@@ -2447,6 +2415,9 @@ async function generarReporteDiarioPDF() {
     return;
   }
 
+  // Obtener el responsable de la primera jornada del día para la firma
+  const responsableDia = jornadasDelDia[0].responsable || "________________";
+
   // Ordenar jornadas por número de socio (numérico si es posible, sino alfabético)
   jornadasDelDia.sort((a, b) => {
     const numA = parseInt(a.socioId, 10);
@@ -2517,6 +2488,13 @@ async function generarReporteDiarioPDF() {
       doc.text(`Página ${data.pageNumber}`, doc.internal.pageSize.width - 40, doc.internal.pageSize.height - 10);
     }
   });
+
+  // Añadir firma del responsable al final
+  const finalY = doc.lastAutoTable.finalY + 20;
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'bold');
+  doc.text("__________________________", 150, finalY, { align: 'center' });
+  doc.text(`Firma Responsable: ${responsableDia}`, 150, finalY + 5, { align: 'center' });
 
   doc.save(`Reporte_Diario_Jornadas_${fechaReporte}.pdf`);
   showToast("Reporte diario PDF generado con éxito.", "success");
