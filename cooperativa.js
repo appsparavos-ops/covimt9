@@ -38,6 +38,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listener para actualizar horas redondeadas en tiempo real en el modal
   document.getElementById('egreso-hora')?.addEventListener('input', updateRoundedHoursDisplay);
   setupOfflineDetector();
+
+  // Listeners para mostrar/ocultar autorización de menor (16-17 años)
+  document.getElementById('socio-nacimiento')?.addEventListener('change', () => toggleAutorizacionMenor('socio'));
+  document.getElementById('nucleo-nacimiento')?.addEventListener('change', () => toggleAutorizacionMenor('nucleo'));
 });
 
 // --- AUTENTICACIÓN Y SEGURIDAD ---
@@ -252,6 +256,7 @@ async function saveSocio() {
   const fechaNacimiento = document.getElementById('socio-nacimiento').value;
   const comision = normalizarComision(document.getElementById('socio-comision').value);
   const certificadoMedico = document.getElementById('socio-certificado-medico').checked;
+  const autorizacionMenor = document.getElementById('socio-autorizacion-menor').checked;
   const pin = document.getElementById('socio-pin').value.trim();
 
   if (socios.some(s => s.id === id)) {
@@ -274,6 +279,7 @@ async function saveSocio() {
       fechaNacimiento,
       comision,
       certificadoMedico,
+      autorizacionMenor,
       pinHash,
       nucleo: [],
       historialTitulares: [{
@@ -483,12 +489,13 @@ async function saveNucleoMember() {
   const parentesco = document.getElementById('nucleo-parentesco').value;
   const comision = normalizarComision(document.getElementById('nucleo-comision').value);
   const certificadoMedico = document.getElementById('nucleo-certificado-medico').checked;
+  const autorizacionMenor = document.getElementById('nucleo-autorizacion-menor').checked;
 
   const idx = socios.findIndex(s => s.id === socioId);
   if (idx !== -1) {
     const socio = socios[idx];
     const nuevoNucleo = [...(socio.nucleo || [])];
-    const familiar = { nombre, fechaNacimiento, parentesco, comision, certificadoMedico };
+    const familiar = { nombre, fechaNacimiento, parentesco, comision, certificadoMedico, autorizacionMenor };
     if (editIndex >= 0) {
       nuevoNucleo[editIndex] = familiar;
     } else {
@@ -558,15 +565,18 @@ async function removeNucleoMember(socioId, index) {
 }
 
 async function registerIngreso() {
-  const socioId = document.getElementById('ingreso-socio-filtered').value; // Ahora toma el ID del nuevo select
-  const trabajadorNombre = document.getElementById('ingreso-trabajador').value;
+  const socioId = document.getElementById('ingreso-socio-filtered').value;
   const fecha = document.getElementById('ingreso-fecha').value;
   const responsable = document.getElementById('ingreso-responsable').value.trim();
   const horaIngresoRaw = document.getElementById('ingreso-hora').value;
   const tarea = document.getElementById('ingreso-tarea').value.trim();
 
-  if (!trabajadorNombre) {
-    showToast("No se seleccionó un trabajador habilitado.", "error");
+  // Leer todos los checkboxes marcados
+  const checkboxes = document.querySelectorAll('.ingreso-trabajador-cb:checked');
+  const trabajadores = Array.from(checkboxes).map(cb => cb.value);
+
+  if (trabajadores.length === 0) {
+    showToast("Seleccione al menos un integrante habilitado.", "error");
     return;
   }
 
@@ -580,46 +590,54 @@ async function registerIngreso() {
     horaIngreso = `${String(h).padStart(2, '0')}:00`;
   }
 
-  const id = 'reg-' + Date.now();
-  const nuevoIngreso = {
-    id,
-    socioId,
-    trabajadorNombre,
-    fecha,
-    responsable,
-    horaIngreso,
-    horaSalida: '',
-    horasTrabajadas: 0,
-    tarea,
-    firma: '',
-    estado: 'activo'
-  };
+  const currentResp = document.getElementById('ingreso-responsable').value;
+  let successCount = 0;
+  let errorCount = 0;
 
   try {
-    if (!navigator.onLine) {
-      OfflineSync.enqueue('registros', id, 'set', nuevoIngreso);
-      registros.push(nuevoIngreso);
-      renderJornadasActivas();
-      renderDashboard();
-      showToast("Ingreso guardado offline. Se sincronizará al tener conexión.", "info");
-      registrarLog("Ingreso (Offline)", `INGRESO OFFLINE: ${trabajadorNombre} (Socio: ${socioId}). Pendiente de sincronización.`);
-      const currentResp = document.getElementById('ingreso-responsable').value;
-      document.getElementById('form-ingreso').reset();
-      document.getElementById('ingreso-responsable').value = currentResp;
-      setupAsistenciaForms();
-      return;
+    for (const trabajadorNombre of trabajadores) {
+      const id = 'reg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+      const nuevoIngreso = {
+        id,
+        socioId,
+        trabajadorNombre,
+        fecha,
+        responsable,
+        horaIngreso,
+        horaSalida: '',
+        horasTrabajadas: 0,
+        tarea,
+        firma: '',
+        estado: 'activo'
+      };
+
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('registros', id, 'set', nuevoIngreso);
+        registros.push(nuevoIngreso);
+        successCount++;
+      } else {
+        await db.collection('registros').doc(id).set(nuevoIngreso);
+        successCount++;
+      }
     }
 
-    await db.collection('registros').doc(id).set(nuevoIngreso);
-    showToast("Ingreso marcado.", "success");
-    
+    if (!navigator.onLine) {
+      renderJornadasActivas();
+      renderDashboard();
+      showToast(`${successCount} ingreso(s) guardado(s) offline.`, "info");
+      registrarLog("Ingreso Múltiple (Offline)", `${successCount} INGRESOS OFFLINE (Socio: ${socioId}). Pendientes de sincronización.`);
+    } else {
+      showToast(`${successCount} ingreso(s) registrado(s) correctamente.`, "success");
+      registrarLog("Ingreso Múltiple", `${successCount} ingresos para Socio ${socioId}: ${trabajadores.join(', ')}.`);
+    }
+
     // Reiniciar formulario manteniendo al responsable
-    const currentResp = document.getElementById('ingreso-responsable').value;
     document.getElementById('form-ingreso').reset();
     document.getElementById('ingreso-responsable').value = currentResp;
     setupAsistenciaForms();
+
   } catch (err) {
-    showToast("Error al registrar ingreso: " + err.message, "error");
+    showToast("Error al registrar ingreso(s): " + err.message, "error");
   }
 }
 
@@ -1134,7 +1152,10 @@ function calcularEdad(fechaNacStr) {
 
 function esPersonaHabilitada(persona) {
   const edad = calcularEdad(persona.fechaNacimiento);
-  return edad >= 16 && edad <= 70;
+  if (edad < 16 || edad > 70) return false;
+  // Menores de 18 (16-17 años) requieren autorización del responsable
+  if (edad < 18 && !persona.autorizacionMenor) return false;
+  return true;
 }
 
 function esNucleoExonerado(socio) {
@@ -1285,6 +1306,12 @@ function renderSociosList() {
       badgeHabilidad = `<span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold border border-amber-200">Mayor de 70 años</span>`;
     } else if (edad < 16) {
       badgeHabilidad = `<span class="bg-red-50 text-red-700 px-2 py-0.5 rounded text-[10px] font-bold border border-red-200">Menor de 16 años</span>`;
+    } else if (edad >= 16 && edad < 18) {
+      if (s.autorizacionMenor) {
+        badgeHabilidad = `<span class="bg-orange-50 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold border border-orange-200">Menor Autorizado (16-17)</span>`;
+      } else {
+        badgeHabilidad = `<span class="bg-red-50 text-red-700 px-2 py-0.5 rounded text-[10px] font-bold border border-red-200">⚠ Menor Sin Autorización</span>`;
+      }
     } else {
       badgeHabilidad = `<span class="bg-brand-50 text-brand-700 px-2 py-0.5 rounded text-[10px] font-bold border border-brand-200">Habilitado</span>`;
     }
@@ -1296,9 +1323,13 @@ function renderSociosList() {
       nucleoHTML = s.nucleo.map((f, i) => {
         const fEdad = calcularEdad(f.fechaNacimiento);
         const fHabilitado = esPersonaHabilitada(f);
-        const fBadge = fHabilitado ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-200';
+        const fMenor1617 = fEdad >= 16 && fEdad < 18;
+        const fBadge = fHabilitado 
+          ? (fMenor1617 ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-emerald-50 text-emerald-700 border-emerald-100')
+          : 'bg-slate-100 text-slate-500 border-slate-200';
         const fCom = f.comision !== 'Ninguna' ? `[C: ${f.comision}]` : '';
         const fCertificado = f.certificadoMedico ? ' 📋' : '';
+        const fAutorizacion = fMenor1617 ? (f.autorizacionMenor ? ' ✅' : ' ⚠️') : '';
 
         const botonesEdicionFamiliar = modoEdicion ? `
             <button onclick="openNucleoModal('${s.id}', ${i})" class="hover:text-brand-700" title="Editar familiar">
@@ -1313,7 +1344,7 @@ function renderSociosList() {
 
         return `
           <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${fBadge}">
-            <span>${f.nombre} (${f.parentesco}, ${fEdad} años) ${fCom}${fCertificado}</span>
+            <span>${f.nombre} (${f.parentesco}, ${fEdad} años)${fAutorizacion} ${fCom}${fCertificado}</span>
             ${botonesEdicionFamiliar}
           </span>
         `;
@@ -1393,7 +1424,7 @@ function setupAsistenciaForms() {
   // Event listener para el select de socios filtrados
   socioSelectFiltered.addEventListener('change', updateIngresoTrabajadores);
 
-  document.getElementById('ingreso-trabajador').innerHTML = '<option value="" disabled selected>Seleccione socio primero</option>';
+  document.getElementById('ingreso-trabajadores-checkboxes').innerHTML = '<p class="text-xs text-slate-400 text-center py-2">Seleccione un socio primero</p>';
   document.getElementById('ingreso-fecha').value = new Date().toISOString().split('T')[0];
   
   const ahora = new Date();
@@ -1433,41 +1464,54 @@ function filterAndRenderSociosForIngreso() {
 }
 
 function updateIngresoTrabajadores() {
-  const socioId = document.getElementById('ingreso-socio-filtered').value; // Ahora toma el ID del nuevo select
-  const trabajadorSelect = document.getElementById('ingreso-trabajador');
-  trabajadorSelect.innerHTML = '';
+  const socioId = document.getElementById('ingreso-socio-filtered').value;
+  const container = document.getElementById('ingreso-trabajadores-checkboxes');
+  container.innerHTML = '';
 
   const socio = socios.find(s => s.id === socioId);
-  if (!socio) return;
-
-  let opcionesAgregadas = 0;
-
-  if (esPersonaHabilitada(socio)) {
-    const opt = document.createElement('option');
-    opt.value = socio.nombre;
-    opt.textContent = `${socio.nombre} (Titular)`;
-    trabajadorSelect.appendChild(opt);
-    opcionesAgregadas++;
+  if (!socio) {
+    container.innerHTML = '<p class="text-xs text-slate-400 text-center py-2">Seleccione un socio primero</p>';
+    return;
   }
 
+  let checkboxesAgregados = 0;
+
+  // Titular
+  if (esPersonaHabilitada(socio)) {
+    const edad = calcularEdad(socio.fechaNacimiento);
+    const esMenor = edad >= 16 && edad < 18;
+    const label = document.createElement('label');
+    label.className = 'flex items-center gap-2 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-emerald-50 transition';
+    label.innerHTML = `
+      <input type="checkbox" class="ingreso-trabajador-cb w-4 h-4 accent-emerald-600" value="${socio.nombre}">
+      <span class="text-sm font-medium text-slate-700">${socio.nombre}</span>
+      <span class="text-[10px] text-slate-400 ml-auto">Titular${esMenor ? ' (16-17)' : ''}</span>
+    `;
+    container.appendChild(label);
+    checkboxesAgregados++;
+  }
+
+  // Familiares del núcleo
   if (socio.nucleo) {
     socio.nucleo.forEach(f => {
       if (esPersonaHabilitada(f)) {
-        const opt = document.createElement('option');
-        opt.value = f.nombre;
-        opt.textContent = `${f.nombre} (${f.parentesco})`;
-        trabajadorSelect.appendChild(opt);
-        opcionesAgregadas++;
+        const edad = calcularEdad(f.fechaNacimiento);
+        const esMenor = edad >= 16 && edad < 18;
+        const label = document.createElement('label');
+        label.className = 'flex items-center gap-2 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-emerald-50 transition';
+        label.innerHTML = `
+          <input type="checkbox" class="ingreso-trabajador-cb w-4 h-4 accent-emerald-600" value="${f.nombre}">
+          <span class="text-sm font-medium text-slate-700">${f.nombre}</span>
+          <span class="text-[10px] text-slate-400 ml-auto">${f.parentesco}${esMenor ? ' (16-17)' : ''}</span>
+        `;
+        container.appendChild(label);
+        checkboxesAgregados++;
       }
     });
   }
 
-  if (opcionesAgregadas === 0) {
-    const opt = document.createElement('option');
-    opt.value = "";
-    opt.textContent = "Sin integrantes habilitados (16 a 70 años o con certificado médico)";
-    opt.disabled = true;
-    trabajadorSelect.appendChild(opt);
+  if (checkboxesAgregados === 0) {
+    container.innerHTML = '<p class="text-xs text-red-500 text-center py-2">Sin integrantes habilitados para trabajar</p>';
   }
 }
 
@@ -2048,6 +2092,10 @@ function openNucleoModal(socioId, index = null) {
   document.getElementById('nucleo-comision').value = familiar ? normalizarComision(familiar.comision) : 'Ninguna';
   populateCommissionSelect('nucleo-comision', familiar ? normalizarComision(familiar.comision) : 'Ninguna'); // Ensure nucleo-comision is populated
   document.getElementById('nucleo-certificado-medico').checked = familiar ? (familiar.certificadoMedico || false) : false;
+  document.getElementById('nucleo-autorizacion-menor').checked = familiar ? (familiar.autorizacionMenor || false) : false;
+
+  // Mostrar/ocultar checkbox de autorización según edad
+  toggleAutorizacionMenor('nucleo');
 
   document.getElementById('modal-nucleo-title').innerHTML = `
     <i data-lucide="${isEdit ? 'pencil' : 'user-plus'}" class="w-5 h-5 text-emerald-300"></i>
@@ -3043,5 +3091,28 @@ async function openCambiarPINModal(socioId) {
     registrarLog("Cambio PIN Socio", `PIN actualizado para Socio ID: ${socioId} (${socio.nombre}).`);
   } catch (err) {
     showToast('Error al actualizar PIN: ' + err.message, 'error');
+  }
+}
+
+// ============================================================
+//  AUTORIZACIÓN DE MENORES (16-17 AÑOS)
+// ============================================================
+
+function esMenorRequiereAutorizacion(fechaNacStr) {
+  if (!fechaNacStr) return false;
+  const edad = calcularEdad(fechaNacStr);
+  return edad >= 16 && edad < 18;
+}
+
+function toggleAutorizacionMenor(prefix) {
+  const fechaInput = document.getElementById(`${prefix}-nacimiento`);
+  const container = document.getElementById(`${prefix}-autorizacion-menor-container`);
+  if (!fechaInput || !container) return;
+
+  if (esMenorRequiereAutorizacion(fechaInput.value)) {
+    container.classList.remove('hidden');
+  } else {
+    container.classList.add('hidden');
+    document.getElementById(`${prefix}-autorizacion-menor`).checked = false;
   }
 }
