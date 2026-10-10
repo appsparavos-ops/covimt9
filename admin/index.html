@@ -1029,6 +1029,43 @@
         navigator.serviceWorker.register('sw.js')
           .then((reg) => {
             console.log('[PWA] Service Worker registrado:', reg.scope);
+            
+            // --- Auto-actualización ---
+            let refreshing = false;
+            
+            // Cuando el nuevo SW toma control, recargar
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+              if (refreshing) return;
+              refreshing = true;
+              console.log('[PWA] Nuevo SW activo, recargando...');
+              window.location.reload();
+            });
+            
+            // Detectar nuevo SW disponible
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              console.log('[PWA] Nuevo SW detectado, instalando...');
+              
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('[PWA] Nuevo SW instalado, activando...');
+                  
+                  // Mostrar toast si está disponible
+                  if (typeof showToast === 'function') {
+                    showToast('🔄 Actualización disponible. Recargando...', 'info');
+                  }
+                  
+                  // Activar nuevo SW inmediatamente
+                  newWorker.postMessage('skipWaiting');
+                }
+              });
+            });
+            
+            // Chequear actualizaciones cada hora
+            setInterval(() => {
+              console.log('[PWA] Chequeando actualizaciones...');
+              reg.update();
+            }, 60 * 60 * 1000);
           })
           .catch((err) => {
             console.warn('[PWA] Error al registrar Service Worker:', err);
