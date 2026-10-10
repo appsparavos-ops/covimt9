@@ -4,7 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>COVIMT 9 - Portal de Socios</title>
-  <link rel="icon" type="image/png" href="pinos.png">
+  <link rel="icon" type="image/x-icon" href="icons-socio/favicon.ico">
+
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#1e40af">
+  <meta name="description" content="Portal de consulta de horas y jornadas para socios de la Cooperativa COVIMT 9">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mi Portal">
+  <link rel="apple-touch-icon" href="icons-socio/apple-touch-icon.png">
+  <link rel="manifest" href="manifest-socio.json">
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Google Fonts: Outfit -->
@@ -189,5 +198,83 @@
       </div>
     </main>
   </div>
+
+  <!-- Botón Flotante de Instalación PWA -->
+  <button id="btn-install-pwa" class="fixed bottom-6 right-6 z-[90] hidden bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3 group active:scale-95" title="Instalar aplicación">
+    <i data-lucide="download" class="w-6 h-6"></i>
+    <span class="text-sm font-semibold max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all duration-300">Instalar App</span>
+  </button>
+
+  <!-- Toast de Instalación Completada -->
+  <div id="install-success-toast" class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[95] hidden bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-lg text-sm font-semibold flex items-center gap-2 animate-bounce">
+    <i data-lucide="check-circle" class="w-5 h-5"></i>
+    ¡App instalada! Abrila desde tu pantalla de inicio.
+  </div>
+
+  <script>
+    // ============================================================
+    //  PWA: SERVICE WORKER & INSTALL PROMPT (SOCIO)
+    // ============================================================
+
+    // --- Registrar Service Worker ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+          .then((reg) => {
+            console.log('[PWA-Socio] Service Worker registrado:', reg.scope);
+          })
+          .catch((err) => {
+            console.warn('[PWA-Socio] Error al registrar Service Worker:', err);
+          });
+      });
+    }
+
+    // --- Capturar evento de instalación ---
+    let deferredPrompt = null;
+    const btnInstall = document.getElementById('btn-install-pwa');
+    const installToast = document.getElementById('install-success-toast');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      btnInstall.classList.remove('hidden');
+      btnInstall.classList.add('flex');
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      console.log('[PWA-Socio] Install prompt captured');
+    });
+
+    btnInstall.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      
+      if (outcome === 'accepted') {
+        btnInstall.classList.add('hidden');
+        btnInstall.classList.remove('flex');
+        installToast.classList.remove('hidden');
+        setTimeout(() => installToast.classList.add('hidden'), 4000);
+        console.log('[PWA-Socio] User accepted install');
+      } else {
+        console.log('[PWA-Socio] User dismissed install');
+      }
+      
+      deferredPrompt = null;
+    });
+
+    // Ocultar botón si la app ya está instalada
+    window.addEventListener('appinstalled', () => {
+      btnInstall.classList.add('hidden');
+      btnInstall.classList.remove('flex');
+      deferredPrompt = null;
+      console.log('[PWA-Socio] App installed successfully');
+    });
+
+    // Si ya está en modo standalone (instalada), no mostrar botón
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+      btnInstall.classList.add('hidden');
+    }
+  </script>
+
 </body>
 </html>
