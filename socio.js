@@ -224,22 +224,17 @@ async function initMemberApp() {
   }
   db = firebase.firestore();
 
-  // Forzamos persistencia de sesión para evitar conflictos con la cuenta de administrador y loguear errores.
+  // Usar autenticación anónima (sin credenciales hardcoded)
   await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(err => console.error("Error al configurar persistencia de sesión:", err));
 
   try {
-    // Login automático con cuenta genérica para permitir lectura de datos bajo reglas de seguridad.
-    // Esto garantiza que cualquier consulta posterior a Firestore esté autenticada.
-    if (!firebase.auth().currentUser || firebase.auth().currentUser.email !== "socios@coope.com") {
-      const userCredential = await firebase.auth().signInWithEmailAndPassword("socios@coope.com", "socios");
-      console.log("Sesión de consulta iniciada:", userCredential.user.email);
+    // Login anónimo automático para permitir consultas a Firestore
+    if (!firebase.auth().currentUser) {
+      await firebase.auth().signInAnonymously();
+      console.log("Sesión anónima iniciada:", firebase.auth().currentUser.uid);
     }
 
-    // Test de lectura: intentamos traer la configuración
-    const testDoc = await db.collection('config').doc('metaGlobal').get();
-    console.log("Test de conexión a Firestore:", testDoc.exists ? "EXITOSO" : "FALLIDO (No existe metaGlobal)");
-
-    // Una vez autenticados con Firebase, verificamos si ya existe una sesión "interna" de socio
+    // Verificar si ya existe una sesión interna de socio
     currentMemberSocioId = localStorage.getItem('memberSocioId');
     if (currentMemberSocioId) {
       showMemberPortal();
@@ -270,13 +265,28 @@ function showMemberPortal() {
   lucide.createIcons();
 }
 
+// --- Función de hash SHA-256 para PIN ---
+async function hashPIN(pin) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function handleMemberLogin() {
   const nombre = cleanText(document.getElementById('member-login-name').value);
   const socioId = document.getElementById('member-login-id').value.trim();
+  const pin = document.getElementById('member-login-pin').value.trim();
   const submitBtn = document.getElementById('btn-member-login-submit');
 
-  if (!nombre || !socioId) {
-    showToast("Por favor, ingresa tu nombre y número de socio.", "error");
+  if (!nombre || !socioId || !pin) {
+    showToast("Por favor, ingresa tu nombre, número de socio y PIN.", "error");
+    return;
+  }
+
+  if (!/^\d{4}$/.test(pin)) {
+    showToast("El PIN debe tener exactamente 4 dígitos.", "error");
     return;
   }
 
@@ -285,24 +295,21 @@ async function handleMemberLogin() {
   lucide.createIcons();
 
   try {
-    // Aseguramos que la sesión genérica de Firebase esté activa antes de consultar la base de datos
-    if (!firebase.auth().currentUser) {
-      await firebase.auth().signInWithEmailAndPassword("socios@coope.com", "socios");
-    }
-
-    // Optimizamos: Buscamos directamente por ID de documento (Primary Key)
+    // Buscar socio por ID
     const doc = await db.collection('socios').doc(socioId).get();
 
     if (!doc.exists) {
       showDiagnosticModal(
         "Socio no encontrado", 
-        `El número de socio "${socioId}" no existe en la base de datos. Verifica que incluya puntos y guiones si así fue registrado (ej: 1.234.567-8).`,
+        `El número de socio "${socioId}" no existe en la base de datos.`,
         true
       );
       return;
     }
 
     const socioData = doc.data();
+
+    // Verificar nombre
     if (cleanText(socioData.nombre) !== nombre) {
       showDiagnosticModal(
         "Nombre no coincide", 
@@ -312,14 +319,28 @@ async function handleMemberLogin() {
       return;
     }
 
+    // Verificar PIN (hash SHA-256)
+    const pinHash = await hashPIN(pin);
+    if (!socioData.pinHash || socioData.pinHash !== pinHash) {
+      showDiagnosticModal(
+        "PIN incorrecto",
+        "El PIN de 4 dígitos ingresado no es válido. Contactá al administrador si olvidaste tu PIN.",
+        true
+      );
+      return;
+    }
+
     currentMemberSocioId = socioData.id;
     localStorage.setItem('memberSocioId', currentMemberSocioId);
-    localStorage.setItem('memberSocioName', socioData.nombre); // Store name for display
+    localStorage.setItem('memberSocioName', socioData.nombre);
 
     showToast(`Bienvenido, ${socioData.nombre}.`, "success");
     registrarLog("Acceso Portal Socio", `LOGIN - El socio ${socioData.nombre} (ID: ${currentMemberSocioId}) ingresó a su portal.`);
     showMemberPortal();
     loadMemberData(currentMemberSocioId);
+
+    // Limpiar campos sensibles
+    document.getElementById('member-login-pin').value = '';
 
   } catch (error) {
     showToast("Error al intentar acceder: " + error.message, "error");

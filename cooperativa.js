@@ -252,11 +252,20 @@ async function saveSocio() {
   const fechaNacimiento = document.getElementById('socio-nacimiento').value;
   const comision = normalizarComision(document.getElementById('socio-comision').value);
   const certificadoMedico = document.getElementById('socio-certificado-medico').checked;
+  const pin = document.getElementById('socio-pin').value.trim();
 
   if (socios.some(s => s.id === id)) {
     showToast("ID de socio ya se encuentra registrado.", "error");
     return;
   }
+
+  if (!/^\d{4}$/.test(pin)) {
+    showToast("El PIN debe tener exactamente 4 dígitos numéricos.", "error");
+    return;
+  }
+
+  // Hashear PIN con SHA-256
+  const pinHash = await hashPIN(pin);
 
   try {
     const socioData = {
@@ -267,6 +276,7 @@ async function saveSocio() {
       fechaNacimiento,
       comision,
       certificadoMedico,
+      pinHash,
       nucleo: [],
       historialTitulares: [{
         nombre,
@@ -291,7 +301,7 @@ async function saveSocio() {
     }
 
     await db.collection('socios').doc(id).set(socioData);
-    showToast("Socio titular guardado.", "success");
+    showToast(`Socio titular guardado. PIN: ${pin}`, "success");
     registrarLog("Creación/Edición Socio", `SOCIO TITULAR: ${nombre} (ID: ${id}). Fecha de alta: ${fechaAlta}.`);
     document.getElementById('form-socio').reset();
   } catch (err) {
@@ -1312,6 +1322,9 @@ function renderSociosList() {
         </button>
         <button onclick="openGestionEstadoModal('${s.id}', 'titular')" class="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Cambiar Titular
+        </button>
+        <button onclick="openCambiarPINModal('${s.id}')" class="px-3 py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 rounded-lg text-xs font-semibold transition flex items-center gap-1" title="Cambiar PIN de acceso al portal">
+          <i data-lucide="key-round" class="w-3.5 h-3.5"></i> PIN
         </button>
         <button onclick="openNucleoModal('${s.id}')" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1">
           <i data-lucide="plus" class="w-3.5 h-3.5"></i> Familiar
@@ -2968,5 +2981,57 @@ async function handleClearQueue() {
     OfflineSync.clearQueue();
     closeSyncModal();
     showToast('Cola de operaciones descartada.', 'info');
+  }
+}
+
+// ============================================================
+//  PIN DE ACCESO AL PORTAL DE SOCIOS
+// ============================================================
+
+async function hashPIN(pin) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function generarPIN() {
+  const pin = String(Math.floor(1000 + Math.random() * 9000));
+  const input = document.getElementById('socio-pin');
+  if (input) {
+    input.value = pin;
+    input.type = 'text'; // Mostrar temporalmente
+    setTimeout(() => { input.type = 'password'; }, 3000);
+  }
+  showToast(`PIN generado: ${pin} (visible 3 segundos)`, 'info');
+}
+
+async function openCambiarPINModal(socioId) {
+  const socio = socios.find(s => s.id === socioId);
+  if (!socio) return;
+
+  const nuevoPin = prompt(`Cambiar PIN de acceso para ${socio.nombre} (ID: ${socioId})\n\nIngresá un nuevo PIN de 4 dígitos:`);
+  if (!nuevoPin) return;
+
+  if (!/^\d{4}$/.test(nuevoPin)) {
+    showToast('El PIN debe tener exactamente 4 dígitos numéricos.', 'error');
+    return;
+  }
+
+  try {
+    const pinHash = await hashPIN(nuevoPin);
+
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('socios', socioId, 'update', { pinHash });
+      showToast('PIN actualizado offline. Se sincronizará al tener conexión.', 'info');
+      return;
+    }
+
+    await db.collection('socios').doc(socioId).update({ pinHash });
+    showToast(`PIN actualizado para ${socio.nombre}. Nuevo PIN: ${nuevoPin}`, 'success');
+    registrarLog("Cambio PIN Socio", `PIN actualizado para Socio ID: ${socioId} (${socio.nombre}).`);
+  } catch (err) {
+    showToast('Error al actualizar PIN: ' + err.message, 'error');
   }
 }
