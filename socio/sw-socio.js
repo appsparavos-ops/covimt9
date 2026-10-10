@@ -118,3 +118,10 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+// --- MESSAGE: Allow manual cache update ---
+self.addEventListener('message', (event) => {
+  if (event.data === 'skipWaiting' || (event.data && event.data.type === 'SKIP_WAITING')) {
+    self.skipWaiting();
+  }
+});

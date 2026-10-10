@@ -9,7 +9,7 @@
   <!-- PWA Meta Tags -->
   <meta name="theme-color" content="#1e40af">
   <meta name="description" content="Portal de consulta de horas y jornadas para socios de la Cooperativa COVIMT 9">
-  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Mi Portal">
   <link rel="apple-touch-icon" href="icons-socio/apple-touch-icon.png">
@@ -97,7 +97,7 @@
             <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
               <i data-lucide="key" class="w-4 h-4"></i>
             </span>
-            <input type="text" id="member-login-id" required class="w-full rounded-xl border border-slate-200 pl-10 pr-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="Ej. 002, 022,222">
+            <input type="text" id="member-login-id" required class="w-full rounded-xl border border-slate-200 pl-10 pr-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition" placeholder="Ej. 1.234.567-8">
           </div>
         </div>
         <div>
@@ -282,6 +282,38 @@
         navigator.serviceWorker.register('sw-socio.js')
           .then((reg) => {
             console.log('[PWA-Socio] Service Worker registrado:', reg.scope);
+            
+            // --- Auto-actualización ---
+            let refreshing = false;
+            
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+              if (refreshing) return;
+              refreshing = true;
+              console.log('[PWA-Socio] Nuevo SW activo, recargando...');
+              window.location.reload();
+            });
+            
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              console.log('[PWA-Socio] Nuevo SW detectado, instalando...');
+              
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('[PWA-Socio] Nuevo SW instalado, activando...');
+                  
+                  if (typeof showToast === 'function') {
+                    showToast('🔄 Actualización disponible. Recargando...', 'info');
+                  }
+                  
+                  newWorker.postMessage('skipWaiting');
+                }
+              });
+            });
+            
+            setInterval(() => {
+              console.log('[PWA-Socio] Chequeando actualizaciones...');
+              reg.update();
+            }, 60 * 60 * 1000);
           })
           .catch((err) => {
             console.warn('[PWA-Socio] Error al registrar Service Worker:', err);
