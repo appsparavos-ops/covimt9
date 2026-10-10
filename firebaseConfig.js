@@ -1,7 +1,6 @@
 // Configuración de Firebase de la Cooperativa Habitacional
 // Reemplaza estos campos con los datos de tu consola de Firebase
 const firebaseConfig = {
-const firebaseConfig = {
   apiKey: "AIzaSyAIanE_OB6_fDdqxkT8wNhnE2hLrllOn50",
   authDomain: "obra-1825d.firebaseapp.com",
   projectId: "obra-1825d",
