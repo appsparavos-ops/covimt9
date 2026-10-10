@@ -224,8 +224,8 @@ async function initMemberApp() {
   }
   db = firebase.firestore();
 
-  // Usar autenticación anónima (sin credenciales hardcoded)
-  await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(err => console.error("Error al configurar persistencia de sesión:", err));
+  // Usar persistencia LOCAL para que la sesión anónima sobreviva entre aperturas de la PWA
+  await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => console.error("Error al configurar persistencia:", err));
 
   try {
     // Login anónimo automático para permitir consultas a Firestore
