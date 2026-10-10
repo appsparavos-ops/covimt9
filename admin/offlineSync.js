@@ -284,10 +284,8 @@ const OfflineSync = (() => {
     _updateUI();
     setupConnectionListeners(dbRef);
 
-    // Precargar datos si hay conexión
-    if (navigator.onLine) {
-      precargarDatos(dbRef);
-    }
+    // La precarga se ejecuta desde checkAuthAndInit() DESPUÉS de autenticar
+    // No precargar aquí porque el usuario puede no estar autenticado aún
   }
 
   // API pública

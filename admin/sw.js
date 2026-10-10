@@ -80,6 +80,9 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
 
+  // Skip non-http(s) schemes (chrome-extension, moz-extension, etc.)
+  if (!url.protocol.startsWith('http')) return;
+
   // Skip Firebase API calls (let them go through normally)
   if (url.hostname.includes('firestore.googleapis.com') || 
       url.hostname.includes('securetoken.googleapis.com') ||

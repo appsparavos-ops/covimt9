@@ -100,6 +100,11 @@ function checkAuthAndInit() {
       
       // Sincronizar Firestore
       startFirestoreSync();
+
+      // Precargar datos para modo offline (ahora sí hay auth)
+      if (navigator.onLine) {
+        OfflineSync.precargarDatos(db);
+      }
     } else {
       // Usuario no autenticado: mostrar login, ocultar app
       viewLogin?.classList.remove('hidden');
