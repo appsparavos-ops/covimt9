@@ -402,6 +402,11 @@ async function loadMemberData(socioId) {
     renderMemberDashboard();
     renderMemberJornadasTable();
 
+    // Verificar si está usando PIN por defecto
+    if (memberSocios.length > 0) {
+      checkDefaultPIN(memberSocios[0]);
+    }
+
   } catch (error) {
     showToast("Error al cargar tus datos: " + error.message, "error");
     console.error("Error loading member data:", error);
@@ -544,4 +549,92 @@ function renderMemberJornadasTable() {
     `;
     tbody.appendChild(row);
   });
+}
+// ============================================================
+//  CAMBIO DE PIN POR EL SOCIO
+// ============================================================
+
+const DEFAULT_PIN_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // SHA-256 de "1234"
+
+async function hashPIN(pin) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function checkDefaultPIN(socioData) {
+  const alert = document.getElementById('member-default-pin-alert');
+  if (!alert) return;
+  
+  if (socioData.pinHash === DEFAULT_PIN_HASH) {
+    alert.classList.remove('hidden');
+  } else {
+    alert.classList.add('hidden');
+  }
+}
+
+async function handleChangeMemberPIN() {
+  const currentPin = document.getElementById('member-current-pin').value.trim();
+  const newPin = document.getElementById('member-new-pin').value.trim();
+  const confirmPin = document.getElementById('member-confirm-pin').value.trim();
+
+  // Validaciones
+  if (!/^\d{4}$/.test(currentPin)) {
+    showToast('El PIN actual debe tener 4 dígitos.', 'error');
+    return;
+  }
+
+  if (!/^\d{4}$/.test(newPin)) {
+    showToast('El nuevo PIN debe tener exactamente 4 dígitos numéricos.', 'error');
+    return;
+  }
+
+  if (newPin !== confirmPin) {
+    showToast('El nuevo PIN y la confirmación no coinciden.', 'error');
+    return;
+  }
+
+  if (currentPin === newPin) {
+    showToast('El nuevo PIN debe ser diferente al actual.', 'error');
+    return;
+  }
+
+  try {
+    // Verificar PIN actual
+    const currentHash = await hashPIN(currentPin);
+    const socioDoc = await db.collection('socios').doc(currentMemberSocioId).get();
+    
+    if (!socioDoc.exists) {
+      showToast('Error: no se encontraron datos del socio.', 'error');
+      return;
+    }
+
+    const socioData = socioDoc.data();
+    if (socioData.pinHash !== currentHash) {
+      showToast('El PIN actual es incorrecto.', 'error');
+      return;
+    }
+
+    // Hashear nuevo PIN y actualizar
+    const newPinHash = await hashPIN(newPin);
+    await db.collection('socios').doc(currentMemberSocioId).update({ pinHash: newPinHash });
+
+    showToast('✓ PIN cambiado exitosamente.', 'success');
+    registrarLog("Cambio PIN Socio", `El socio ID: ${currentMemberSocioId} cambió su PIN desde el portal.`);
+
+    // Limpiar campos
+    document.getElementById('member-current-pin').value = '';
+    document.getElementById('member-new-pin').value = '';
+    document.getElementById('member-confirm-pin').value = '';
+
+    // Ocultar aviso de PIN por defecto
+    const alert = document.getElementById('member-default-pin-alert');
+    if (alert) alert.classList.add('hidden');
+
+  } catch (error) {
+    showToast('Error al cambiar PIN: ' + error.message, 'error');
+    console.error('Error changing PIN:', error);
+  }
 }

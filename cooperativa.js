@@ -259,13 +259,11 @@ async function saveSocio() {
     return;
   }
 
-  if (!/^\d{4}$/.test(pin)) {
-    showToast("El PIN debe tener exactamente 4 dígitos numéricos.", "error");
-    return;
-  }
+  // Si no se ingresa PIN, usar el PIN por defecto "1234"
+  const pinFinal = /^\d{4}$/.test(pin) ? pin : '1234';
 
   // Hashear PIN con SHA-256
-  const pinHash = await hashPIN(pin);
+  const pinHash = await hashPIN(pinFinal);
 
   try {
     const socioData = {
@@ -301,7 +299,8 @@ async function saveSocio() {
     }
 
     await db.collection('socios').doc(id).set(socioData);
-    showToast(`Socio titular guardado. PIN: ${pin}`, "success");
+    const pinMsg = /^\d{4}$/.test(pin) ? `PIN: ${pin}` : 'PIN por defecto: 1234 (el socio puede cambiarlo desde su portal)';
+    showToast(`Socio titular guardado. ${pinMsg}`, "success");
     registrarLog("Creación/Edición Socio", `SOCIO TITULAR: ${nombre} (ID: ${id}). Fecha de alta: ${fechaAlta}.`);
     document.getElementById('form-socio').reset();
   } catch (err) {
@@ -889,11 +888,13 @@ async function procesarCSV(event) {
       if (c > 0) await batchDel2.commit();
 
       // 3. Escribir nuevos socios
+      const defaultPinHash = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // SHA-256 de "1234"
       let batchW = db.batch();
       c = 0;
       for (const { socio } of datos) {
         const socioData = {
           ...socio,
+          pinHash: defaultPinHash,
           fechaAlta: socio.fechaAlta || `${anio}-${mes}-01`,
           historialTitulares: socio.historialTitulares || [{
             nombre: socio.nombre,
