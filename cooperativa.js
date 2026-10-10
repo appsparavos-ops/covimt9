@@ -891,10 +891,15 @@ async function procesarCSV(event) {
       const defaultPinHash = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // SHA-256 de "1234"
       let batchW = db.batch();
       c = 0;
-      for (const { socio } of datos) {
+      for (const { socio, pin } of datos) {
+        // Hashear PIN del CSV o usar default
+        const pinHash = (pin && /^\d{4}$/.test(pin)) 
+          ? await hashPIN(pin) 
+          : defaultPinHash;
+
         const socioData = {
           ...socio,
-          pinHash: defaultPinHash,
+          pinHash,
           fechaAlta: socio.fechaAlta || `${anio}-${mes}-01`,
           historialTitulares: socio.historialTitulares || [{
             nombre: socio.nombre,
@@ -974,6 +979,9 @@ function parsearCSVSocios(texto) {
     // Saldo anterior: columna 33 (después de 10 familiares)
     const saldoAnterior = parseFloat((cols[33] || '0').replace(',', '.')) || 0;
 
+    // PIN: columna 34 (opcional, 4 dígitos, default "1234")
+    const pin = /^\d{4}$/.test(cols[34] || '') ? cols[34].trim() : '1234';
+
     resultado.push({
       socio: {
         id,
@@ -982,7 +990,8 @@ function parsearCSVSocios(texto) {
         comision: 'Ninguna',
         nucleo
       },
-      saldoAnterior
+      saldoAnterior,
+      pin
     });
   }
   return resultado;
