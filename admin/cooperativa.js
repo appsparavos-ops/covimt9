@@ -1996,6 +1996,13 @@ function renderDashboard() {
   const anio = document.getElementById('planilla-anio')?.value || new Date().getFullYear().toString();
   const mes = document.getElementById('planilla-mes')?.value || (new Date().getMonth() + 1).toString().padStart(2, '0');
   
+  // Actualizar texto del período en el dashboard
+  const mesesNombre = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  const periodEl = document.getElementById('kpi-hours-period');
+  if (periodEl) {
+    periodEl.textContent = `${mesesNombre[parseInt(mes)]} ${anio}`;
+  }
+  
   // Fecha de referencia para el snapshot (fin de mes)
   const fechaReferencia = `${anio}-${mes}-28`; 
 
