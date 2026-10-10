@@ -112,6 +112,30 @@ self.addEventListener('fetch', (event) => {
   }
 
   // For static assets: cache-first with network fallback
+  // For navigation (HTML pages): network-first with cache fallback
+  const isNavigation = event.request.mode === 'navigate';
+
+  if (isNavigation) {
+    // Network-first: try server, fallback to cache if offline
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, clone);
+            });
+          }
+          return response;
+        })
+        .catch(() => {
+          return caches.match(event.request);
+        })
+    );
+    return;
+  }
+
+  // For other assets: cache-first with network fallback
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;

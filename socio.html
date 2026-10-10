@@ -263,7 +263,21 @@
 
     // --- Registrar Service Worker ---
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
+      window.addEventListener('load', async () => {
+        // Limpiar SWs viejos que puedan estar causando conflictos
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            const swUrl = reg.active?.scriptURL || reg.installing?.scriptURL || '';
+            if (swUrl.includes('sw-socio.js') || (swUrl.includes('sw.js') === false && swUrl.includes('serviceWorker'))) {
+              console.log('[PWA-Socio] Desregistrando SW viejo:', swUrl);
+              await reg.unregister();
+            }
+          }
+        } catch (e) {
+          console.warn('[PWA-Socio] Error limpiando SWs viejos:', e);
+        }
+
         navigator.serviceWorker.register('sw.js')
           .then((reg) => {
             console.log('[PWA-Socio] Service Worker registrado:', reg.scope);
