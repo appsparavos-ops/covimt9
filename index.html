@@ -25,6 +25,8 @@
 
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
+  <!-- Módulo Offline Sync -->
+  <script src="offlineSync.js"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
   <script src="cooperativa.js" defer></script>
 
@@ -155,6 +157,12 @@
               <i data-lucide="cloud-off" class="w-5 h-5"></i>
             </div>
 
+            <!-- Badge de Operaciones Pendientes -->
+            <button id="offline-pending-badge" onclick="openSyncModal()" class="hidden relative p-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition animate-pulse" title="Operaciones pendientes de sincronizar">
+              <i data-lucide="cloud-cog" class="w-5 h-5"></i>
+              <span class="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white" data-pending-count>0</span>
+            </button>
+
             <button id="btn-nav-bitacora" onclick="location.href='bitacora.html'" class="hidden p-2 hover:bg-brand-700 rounded-lg text-emerald-300 transition" title="Ver Bitácora de Auditoría">
               <i data-lucide="scroll-text" class="w-5 h-5"></i>
             </button>
@@ -203,6 +211,25 @@
         <button onclick="sincronizarDesdeCSV()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-2">
           <i data-lucide="upload-cloud" class="w-4 h-4"></i> Carga Masiva (CSV)
         </button>
+      </div>
+    </div>
+
+    <!-- Banner de Sincronización Pendiente -->
+    <div id="sync-banner" class="bg-amber-50 border-b border-amber-300 text-amber-900 px-4 py-3 hidden">
+      <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div class="flex items-center gap-2 text-sm">
+          <i data-lucide="cloud-cog" class="w-5 h-5 text-amber-600"></i>
+          <span>Hay <b data-pending-count>0</b> operaciones guardadas localmente pendientes de sincronizar con Firebase.</span>
+          <span id="sync-progress-text" class="text-xs text-amber-600 font-semibold hidden"></span>
+        </div>
+        <div class="flex gap-2">
+          <button id="btn-sync-offline" onclick="handleSyncNow()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-2">
+            <i data-lucide="cloud-upload" class="w-4 h-4"></i> Sincronizar Ahora
+          </button>
+          <button onclick="handleClearQueue()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition flex items-center gap-2" title="Descartar operaciones pendientes">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -890,6 +917,36 @@
         <div class="bg-slate-50 px-6 py-4 flex justify-end gap-3">
           <button id="btn-conf-modal-cancel" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition hover:bg-slate-100">Cancelar</button>
           <button id="btn-conf-modal-confirm" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition shadow-sm">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Sincronización Offline -->
+    <div id="modal-sync-detail" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100">
+        <div class="bg-amber-600 text-white p-4 flex items-center justify-between">
+          <h3 class="font-bold flex items-center gap-2">
+            <i data-lucide="cloud-cog" class="w-5 h-5"></i> Operaciones Pendientes
+          </h3>
+          <button onclick="closeSyncModal()" class="text-white/80 hover:text-white transition">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <div class="p-4">
+          <div id="sync-queue-list" class="space-y-2 max-h-80 overflow-y-auto">
+            <!-- Se renderiza dinámicamente -->
+          </div>
+        </div>
+        <div class="bg-slate-50 px-6 py-4 flex justify-between items-center">
+          <button onclick="handleClearQueue()" class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-xl text-sm font-semibold transition flex items-center gap-2">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Descartar Todo
+          </button>
+          <div class="flex gap-2">
+            <button onclick="closeSyncModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition hover:bg-slate-100">Cerrar</button>
+            <button onclick="handleSyncNow(); closeSyncModal();" class="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2">
+              <i data-lucide="cloud-upload" class="w-4 h-4"></i> Sincronizar
+            </button>
+          </div>
         </div>
       </div>
     </div>

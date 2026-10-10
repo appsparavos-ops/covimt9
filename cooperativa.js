@@ -54,7 +54,7 @@ function checkAuthAndInit() {
   
   db = firebase.firestore();
   
-  // Habilitar persistencia offline de Firestore
+  // Habilitar persistencia offline de Firestore (para cache de lecturas)
   db.enablePersistence()
     .then(() => {
       console.log("Persistencia offline de Firestore habilitada.");
@@ -71,6 +71,18 @@ function checkAuthAndInit() {
   
   // Cambiamos a persistencia LOCAL para que la sesión sobreviva offline al cerrar el navegador
   firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => console.error(err));
+
+  // Inicializar sistema offline
+  OfflineSync.init(db);
+  OfflineSync.onSyncComplete(() => {
+    // Re-renderizar todo tras sincronización exitosa
+    renderSociosList();
+    renderDashboard();
+    renderPlanilla();
+    renderHistorialTable();
+    renderJornadasActivas();
+    setupAsistenciaForms();
+  });
 
   // Escuchar estado de autenticación
   firebase.auth().onAuthStateChanged((user) => {
@@ -209,6 +221,10 @@ function startFirestoreSync() {
 
 async function clearCloudDatabase() {
   if (!db) return;
+  if (!navigator.onLine) {
+    showToast("La limpieza de base de datos requiere conexión a internet.", "error");
+    return;
+  }
   if (await showConfirmModal("LIMPIEZA TOTAL", "¿Estás seguro? Esta acción borrará permanentemente todos los socios, jornadas y saldos de la base de datos.")) {
     try {
       showToast("Vaciando base de datos...", "info");
@@ -243,9 +259,8 @@ async function saveSocio() {
   }
 
   try {
-    await db.collection('socios').doc(id).set({
+    const socioData = {
       id,
-      // ... (other fields)
       nombre,
       fechaAlta,
       fechaBaja: null,
@@ -261,7 +276,21 @@ async function saveSocio() {
         desde: fechaAlta,
         hasta: null
       }]
-    });
+    };
+
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('socios', id, 'set', socioData);
+      socios.push(socioData);
+      renderSociosList();
+      renderDashboard();
+      renderPlanilla();
+      showToast("Socio guardado offline. Se sincronizará al tener conexión.", "info");
+      registrarLog("Creación Socio (Offline)", `SOCIO TITULAR: ${nombre} (ID: ${id}). Pendiente de sincronización.`);
+      document.getElementById('form-socio').reset();
+      return;
+    }
+
+    await db.collection('socios').doc(id).set(socioData);
     showToast("Socio titular guardado.", "success");
     registrarLog("Creación/Edición Socio", `SOCIO TITULAR: ${nombre} (ID: ${id}). Fecha de alta: ${fechaAlta}.`);
     document.getElementById('form-socio').reset();
@@ -345,7 +374,22 @@ async function processGestionEstado() {
 
   try {
     if (accion === 'baja') {
-      await db.collection('socios').doc(socioId).update({ fechaBaja: fechaEfectiva });
+      const bajaData = { fechaBaja: fechaEfectiva };
+      
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('socios', socioId, 'update', bajaData);
+        const socioIdx = socios.findIndex(s => s.id === socioId);
+        if (socioIdx >= 0) socios[socioIdx].fechaBaja = fechaEfectiva;
+        renderSociosList();
+        renderDashboard();
+        renderPlanilla();
+        showToast(`Baja guardada offline desde ${fechaEfectiva}. Se sincronizará al tener conexión.`, "info");
+        registrarLog("Baja Socio (Offline)", `BAJA del Socio ID: ${socioId}. Pendiente de sincronización.`);
+        closeGestionEstadoModal();
+        return;
+      }
+      
+      await db.collection('socios').doc(socioId).update(bajaData);
       showToast(`Socio ${socioId} dado de baja desde ${fechaEfectiva}`, "info");
       registrarLog("Baja de Socio", `BAJA DEFINITIVA del Socio ID: ${socioId} (${socio.nombre}) a partir del día ${fechaEfectiva}.`);
     } else {
@@ -391,14 +435,29 @@ async function processGestionEstado() {
       let nuevoNucleo = socio.nucleo.filter(f => f.nombre !== nuevoNombreTitular);
       nuevoNucleo.push(antiguoTitularData);
 
-      await db.collection('socios').doc(socioId).update({
+      const updateData = {
         nombre: nuevoTitularData.nombre,
         fechaNacimiento: nuevoTitularData.fechaNacimiento,
-        comision: nuevoTitularData.comision, // Actualizar la comisión del socio principal
-        certificadoMedico: nuevoTitularData.certificadoMedico, // Actualizar el certificado médico del socio principal
-        nucleo: nuevoNucleo, // Actualizar el núcleo familiar
+        comision: nuevoTitularData.comision,
+        certificadoMedico: nuevoTitularData.certificadoMedico,
+        nucleo: nuevoNucleo,
         historialTitulares: historial
-      });
+      };
+
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('socios', socioId, 'update', updateData);
+        const socioIdx = socios.findIndex(s => s.id === socioId);
+        if (socioIdx >= 0) Object.assign(socios[socioIdx], updateData);
+        renderSociosList();
+        renderDashboard();
+        renderPlanilla();
+        showToast("Cambio de titular guardado offline. Se sincronizará al tener conexión.", "info");
+        registrarLog("Cambio Titular (Offline)", `Socio ID: ${socioId}. Pendiente de sincronización.`);
+        closeGestionEstadoModal();
+        return;
+      }
+
+      await db.collection('socios').doc(socioId).update(updateData);
       showToast("Titular cambiado exitosamente.", "success");
       registrarLog("Cambio de Titular", `Socio ID: ${socioId}. CAMBIO DE TITULARIDAD el ${fechaEfectiva}. Titular saliente: ${antiguoTitular}. Titular entrante: ${nuevoNombreTitular}.`);
     }
@@ -427,6 +486,18 @@ async function saveNucleoMember() {
       nuevoNucleo.push(familiar);
     }
     try {
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('socios', socioId, 'update', { nucleo: nuevoNucleo });
+        // Optimistic update
+        socios[idx].nucleo = nuevoNucleo;
+        renderSociosList();
+        renderDashboard();
+        renderPlanilla();
+        showToast("Familiar guardado offline. Se sincronizará al tener conexión.", "info");
+        registrarLog(editIndex >= 0 ? "Edición Familiar (Offline)" : "Adición Familiar (Offline)", `FAMILIAR: ${nombre} (${parentesco}) en Socio ID: ${socioId}. Pendiente de sincronización.`);
+        closeNucleoModal();
+        return;
+      }
       await db.collection('socios').doc(socioId).update({ nucleo: nuevoNucleo });
       showToast(editIndex >= 0 ? "Familiar actualizado." : "Familiar agregado al núcleo.", "success");
       registrarLog(editIndex >= 0 ? "Edición Familiar" : "Adición Familiar", `FAMILIAR: ${nombre} (${parentesco}) en el núcleo del Socio ID: ${socioId}.`);
@@ -457,6 +528,16 @@ async function removeNucleoMember(socioId, index) {
       const nuevoNucleo = [...socio.nucleo];
       nuevoNucleo.splice(index, 1);
       try {
+        if (!navigator.onLine) {
+          OfflineSync.enqueue('socios', socioId, 'update', { nucleo: nuevoNucleo });
+          socios[idx].nucleo = nuevoNucleo;
+          renderSociosList();
+          renderDashboard();
+          renderPlanilla();
+          showToast("Familiar eliminado (offline). Se sincronizará al tener conexión.", "info");
+          registrarLog("Eliminación Familiar (Offline)", `Familiar índice ${index} eliminado del Socio ID: ${socioId}. Pendiente de sincronización.`);
+          return;
+        }
         await db.collection('socios').doc(socioId).update({ nucleo: nuevoNucleo });
         showToast("Miembro removido.", "info");
         registrarLog("Eliminación Familiar", `Se eliminó al familiar con índice ${index} del núcleo del Socio ID: ${socioId}.`);
@@ -506,6 +587,20 @@ async function registerIngreso() {
   };
 
   try {
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('registros', id, 'set', nuevoIngreso);
+      registros.push(nuevoIngreso);
+      renderJornadasActivas();
+      renderDashboard();
+      showToast("Ingreso guardado offline. Se sincronizará al tener conexión.", "info");
+      registrarLog("Ingreso (Offline)", `INGRESO OFFLINE: ${trabajadorNombre} (Socio: ${socioId}). Pendiente de sincronización.`);
+      const currentResp = document.getElementById('ingreso-responsable').value;
+      document.getElementById('form-ingreso').reset();
+      document.getElementById('ingreso-responsable').value = currentResp;
+      setupAsistenciaForms();
+      return;
+    }
+
     await db.collection('registros').doc(id).set(nuevoIngreso);
     showToast("Ingreso marcado.", "success");
     
@@ -531,6 +626,18 @@ async function submitEgresoWithSignature() {
       if (await showConfirmModal("Jornada de 0.00 hs", "Esta jornada no alcanzó el mínimo computable de 1:45h. ¿Deseas ELIMINAR el ingreso? Si cancelas, la jornada seguirá activa para completar más horas.")) {
         try {
           registrarLog("Eliminación Ingreso", `CANCELACIÓN - Jornada ID: ${id} de ${reg.trabajadorNombre} (Socio: ${reg.socioId}) eliminada por tiempo insuficiente (0.00 hs).`);
+          
+          if (!navigator.onLine) {
+            OfflineSync.enqueue('registros', id, 'delete', null);
+            registros = registros.filter(r => r.id !== id);
+            renderJornadasActivas();
+            renderDashboard();
+            renderHistorialTable();
+            showToast("Jornada eliminada (offline).", "info");
+            closeEgresoModal();
+            return;
+          }
+          
           await db.collection('registros').doc(id).delete();
           showToast("Jornada eliminada.", "info");
           closeEgresoModal();
@@ -551,12 +658,31 @@ async function submitEgresoWithSignature() {
     const firma = signatureCanvas.toDataURL();
 
     try {
-      await db.collection('registros').doc(id).set({
+      const egresoData = {
         horaSalida,
         horasTrabajadas: calculated,
         firma,
         estado: 'finalizado'
-      }, { merge: true });
+      };
+
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('registros', id, 'merge', egresoData);
+        // Optimistic update
+        const regIdx = registros.findIndex(r => r.id === id);
+        if (regIdx >= 0) {
+          registros[regIdx] = { ...registros[regIdx], ...egresoData };
+        }
+        renderJornadasActivas();
+        renderDashboard();
+        renderPlanilla();
+        renderHistorialTable();
+        showToast(`Egreso guardado offline: ${calculated} hs. Se sincronizará al tener conexión.`, "info");
+        registrarLog("Egreso (Offline)", `EGRESO OFFLINE: ${reg.trabajadorNombre}. ${calculated} hs. Pendiente de sincronización.`);
+        closeEgresoModal();
+        return;
+      }
+
+      await db.collection('registros').doc(id).set(egresoData, { merge: true });
       showToast(`Egreso registrado: ${calculated} hs guardadas.`, "success");
       registrarLog("Egreso Jornada", `FIN - Trabajador: ${reg.trabajadorNombre} (Socio: ${reg.socioId}). Salida: ${horaSalida}hs. Total computado: ${calculated} hs.`);
       closeEgresoModal();
@@ -570,6 +696,18 @@ async function deleteRecord(recordId) {
   if (await showConfirmModal("Eliminar Jornada", "¿Deseas borrar permanentemente este registro de trabajo?")) {
     try {
       registrarLog("Eliminación Registro", `Jornada ID: ${recordId} borrada manualmente.`);
+
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('registros', recordId, 'delete', null);
+        registros = registros.filter(r => r.id !== recordId);
+        renderJornadasActivas();
+        renderDashboard();
+        renderPlanilla();
+        renderHistorialTable();
+        showToast("Jornada eliminada (offline). Se sincronizará al tener conexión.", "info");
+        return;
+      }
+
       await db.collection('registros').doc(recordId).delete();
       showToast("Jornada eliminada.", "info");
     } catch (err) {
@@ -582,7 +720,8 @@ async function saveConfig() {
   const obj = parseInt(document.getElementById('config-objetivo').value);
   if (obj > 0) {
     try {
-      await db.collection('config').doc('metaGlobal').set(normalizarConfig({ objetivoHoras: obj }));
+      const configData = normalizarConfig({ objetivoHoras: obj });
+      
       // Guardar modo edición
       const toggleEl = document.getElementById('config-modo-edicion');
       const nuevoModo = toggleEl ? toggleEl.checked : modoEdicion;
@@ -601,6 +740,18 @@ async function saveConfig() {
 
       modoEdicion = nuevoModo;
       applyModoEdicion();
+
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('config', 'metaGlobal', 'set', configData);
+        config = configData;
+        renderDashboard();
+        renderPlanilla();
+        showToast("Configuración guardada offline. Se sincronizará al tener conexión.", "info");
+        registrarLog("Configuración (Offline)", `Meta: ${obj} hs. Modo Edición: ${modoEdicion}. Pendiente de sincronización.`);
+        return;
+      }
+
+      await db.collection('config').doc('metaGlobal').set(configData);
       registrarLog("Acceso Administrador", `Meta: ${obj} hs. Modo Edición: ${modoEdicion}.`);
       showToast(modoEdicion ? 'Configuración guardada. Modo Edición activado.' : 'Configuración guardada. Modo Edición desactivado.', 'success');
     } catch (err) {
@@ -844,6 +995,11 @@ async function simularCierreMensual() {
   const anio = document.getElementById('planilla-anio').value;
   const mes = document.getElementById('planilla-mes').value;
 
+  if (!navigator.onLine) {
+    showToast("El cierre mensual requiere conexión a internet.", "error");
+    return;
+  }
+
   if (!await showConfirmModal("Cierre Mensual", `¿Confirmas el cierre del período ${mes}/${anio}? Se calcularán y arrastrarán los saldos para el mes siguiente.`)) {
     return;
   }
@@ -904,6 +1060,11 @@ async function simularCierreMensual() {
 async function reabrirMes() {
   const anio = document.getElementById('planilla-anio').value;
   const mes = document.getElementById('planilla-mes').value;
+
+  if (!navigator.onLine) {
+    showToast("Reabrir mes requiere conexión a internet.", "error");
+    return;
+  }
 
   if (!await showConfirmModal("Reabrir Mes", `¿Deseas reabrir el mes ${mes}/${anio}? Esto eliminará los arrastres generados para el período siguiente.`)) {
     return;
@@ -1829,6 +1990,16 @@ function renderDashboard() {
 async function deleteSocio(socioId) {
   if (await showConfirmModal("ELIMINAR SOCIO", "¿Confirmas la eliminación total de este socio y su historial? Para suspensiones temporales usa la opción 'Baja'.")) {
     try {
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('socios', socioId, 'delete', null);
+        socios = socios.filter(s => s.id !== socioId);
+        renderSociosList();
+        renderDashboard();
+        renderPlanilla();
+        showToast("Socio eliminado (offline). Se sincronizará al tener conexión.", "info");
+        registrarLog("Eliminación Socio (Offline)", `Socio ID: ${socioId} eliminado localmente. Pendiente de sincronización.`);
+        return;
+      }
       await db.collection('socios').doc(socioId).delete();
       registrarLog("Eliminación Total Socio", `Socio ID: ${socioId} borrado permanentemente de la base de datos.`);
       showToast("Socio eliminado por completo.", "info");
@@ -1927,12 +2098,21 @@ async function saveEditedSocio() {
   }
 
   try {
-    await db.collection('socios').doc(socioId).update({
-      nombre,
-      fechaNacimiento,
-      certificadoMedico
-    });
+    const updateData = { nombre, fechaNacimiento, certificadoMedico };
 
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('socios', socioId, 'update', updateData);
+      const idx = socios.findIndex(s => s.id === socioId);
+      if (idx >= 0) Object.assign(socios[idx], updateData);
+      renderSociosList();
+      renderDashboard();
+      renderPlanilla();
+      showToast("Socio actualizado offline. Se sincronizará al tener conexión.", "info");
+      closeEditarSocioModal();
+      return;
+    }
+
+    await db.collection('socios').doc(socioId).update(updateData);
     showToast("Socio actualizado correctamente.", "success");
     closeEditarSocioModal();
   } catch (err) {
@@ -1951,11 +2131,12 @@ async function saveCommissionAssignment() {
   try {
     let personaNombre = '';
     let personaTipo = '';
+    let updateData = {};
 
     if (targetType === 'socio') {
       personaNombre = socio.nombre;
       personaTipo = 'TITULAR';
-      await db.collection('socios').doc(socioId).update({ comision });
+      updateData = { comision };
     } else {
       const index = parseInt(nucleoIndex);
       const nuevoNucleo = [...(socio.nucleo || [])];
@@ -1963,9 +2144,23 @@ async function saveCommissionAssignment() {
       personaNombre = nuevoNucleo[index].nombre;
       personaTipo = 'FAMILIAR';
       nuevoNucleo[index] = { ...nuevoNucleo[index], comision };
-      await db.collection('socios').doc(socioId).update({ nucleo: nuevoNucleo });
+      updateData = { nucleo: nuevoNucleo };
     }
 
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('socios', socioId, 'update', updateData);
+      const idx = socios.findIndex(s => s.id === socioId);
+      if (idx >= 0) Object.assign(socios[idx], updateData);
+      renderSociosList();
+      renderDashboard();
+      renderPlanilla();
+      showToast("Comisión asignada offline. Se sincronizará al tener conexión.", "info");
+      registrarLog("Comisión (Offline)", `Comisión: ${comision} a ${personaNombre} (${personaTipo}) Socio ID: ${socioId}. Pendiente.`);
+      closeComisionModal();
+      return;
+    }
+
+    await db.collection('socios').doc(socioId).update(updateData);
     showToast(comision === 'Ninguna' ? "Asignación a comisión dada de baja." : "Asignación a comisión guardada.", "success");
     registrarLog("Gestión Comisiones", `ASIGNACIÓN - Comisión: ${comision} asignada a ${personaNombre} (${personaTipo}) del Socio ID: ${socioId}.`);
     closeComisionModal();
@@ -2020,7 +2215,17 @@ async function addCommission() {
   }
 
   try {
-    // Guardamos en Firebase usando el nombre normalizado como ID para evitar duplicados reales
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('comisiones', nombreNormalizado, 'set', { nombre: nombreOriginal });
+      COMISIONES_VALIDAS.push(nombreOriginal);
+      COMISIONES_VALIDAS.sort();
+      renderComisionesManagement();
+      populateCommissionSelect('socio-comision');
+      populateCommissionSelect('nucleo-comision');
+      showToast(`Comisión "${nombreOriginal}" añadida offline. Se sincronizará al tener conexión.`, "info");
+      input.value = '';
+      return;
+    }
     registrarLog("Gestión Comisiones", `Nueva comisión creada: ${nombreOriginal}`);
     await db.collection('comisiones').doc(nombreNormalizado).set({ nombre: nombreOriginal });
     showToast(`Comisión "${nombreOriginal}" añadida.`, "success");
@@ -2038,6 +2243,15 @@ async function deleteCommission(commissionName) {
 
   if (await showConfirmModal("Eliminar Comisión", `¿Estás seguro de eliminar la comisión "${commissionName}"?`)) {
     try {
+      if (!navigator.onLine) {
+        OfflineSync.enqueue('comisiones', cleanText(commissionName), 'delete', null);
+        COMISIONES_VALIDAS = COMISIONES_VALIDAS.filter(c => c !== commissionName);
+        renderComisionesManagement();
+        populateCommissionSelect('socio-comision');
+        populateCommissionSelect('nucleo-comision');
+        showToast("Comisión eliminada offline. Se sincronizará al tener conexión.", "info");
+        return;
+      }
       await db.collection('comisiones').doc(cleanText(commissionName)).delete();
       registrarLog("Gestión Comisiones", `Comisión eliminada: ${commissionName}`);
       showToast("Comisión eliminada.", "info");
@@ -2088,12 +2302,16 @@ async function registrarLog(accion, detalle) {
   if (!db) return;
   const user = firebase.auth().currentUser;
   const logEntry = {
-    fecha: new Date().toISOString(), // ISO para ordenamiento fácil
+    fecha: new Date().toISOString(),
     usuario: user ? (user.email || "Admin") : "Sistema",
     accion: accion,
     detalle: detalle
   };
   try {
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('bitacora', null, 'add', logEntry);
+      return;
+    }
     await db.collection('bitacora').add(logEntry);
   } catch (e) { console.error("Error bitácora:", e); }
 }
@@ -2669,4 +2887,86 @@ function showToast(message, type = 'success') {
     toast.classList.add('opacity-0', 'scale-95');
     setTimeout(() => toast.remove(), 300);
   }, 4000);
+}
+
+// ============================================================
+//  FUNCIONES DE SINCRONIZACIÓN OFFLINE (UI)
+// ============================================================
+
+function openSyncModal() {
+  const modal = document.getElementById('modal-sync-detail');
+  const list = document.getElementById('sync-queue-list');
+  if (!modal || !list) return;
+
+  const queue = OfflineSync.getQueue();
+  
+  if (queue.length === 0) {
+    list.innerHTML = '<p class="text-center text-slate-400 py-6">No hay operaciones pendientes.</p>';
+  } else {
+    const opLabels = {
+      'set': { label: 'Crear/Reemplazar', color: 'bg-emerald-100 text-emerald-800' },
+      'update': { label: 'Actualizar', color: 'bg-blue-100 text-blue-800' },
+      'merge': { label: 'Actualizar (merge)', color: 'bg-blue-100 text-blue-800' },
+      'delete': { label: 'Eliminar', color: 'bg-red-100 text-red-800' },
+      'add': { label: 'Añadir', color: 'bg-purple-100 text-purple-800' }
+    };
+
+    list.innerHTML = queue.map((op, i) => {
+      const opInfo = opLabels[op.operation] || { label: op.operation, color: 'bg-slate-100 text-slate-800' };
+      const fecha = new Date(op.timestamp).toLocaleString();
+      return `
+        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-mono text-slate-400">#${i + 1}</span>
+              <span class="px-2 py-0.5 rounded font-bold text-[10px] ${opInfo.color}">${opInfo.label}</span>
+              <span class="font-semibold text-slate-700">${op.collection}${op.docId ? '/' + op.docId : ''}</span>
+            </div>
+            <div class="text-[10px] text-slate-400">${fecha}</div>
+          </div>
+          <button onclick="OfflineSync.removeOp('${op.id}'); openSyncModal();" class="text-red-400 hover:text-red-600 transition p-1" title="Descartar esta operación">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeSyncModal() {
+  document.getElementById('modal-sync-detail')?.classList.add('hidden');
+}
+
+async function handleSyncNow() {
+  if (!navigator.onLine) {
+    showToast('Sin conexión a internet.', 'error');
+    return;
+  }
+  if (!db) {
+    showToast('Base de datos no inicializada.', 'error');
+    return;
+  }
+
+  const progressEl = document.getElementById('sync-progress-text');
+  if (progressEl) {
+    progressEl.classList.remove('hidden');
+    progressEl.textContent = 'Sincronizando...';
+  }
+
+  await OfflineSync.syncAll(db);
+
+  if (progressEl) {
+    progressEl.classList.add('hidden');
+  }
+}
+
+async function handleClearQueue() {
+  if (await showConfirmModal('Descartar Operaciones', '¿Estás seguro de descartar TODAS las operaciones pendientes? Los cambios guardados localmente se perderán permanentemente.')) {
+    OfflineSync.clearQueue();
+    closeSyncModal();
+    showToast('Cola de operaciones descartada.', 'info');
+  }
 }
