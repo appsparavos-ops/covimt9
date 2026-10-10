@@ -1,6 +1,7 @@
 {
   "name": "COVIMT 9 - Portal de Socios",
   "short_name": "Mi Portal",
+  "id": "covimt9-socio",
   "description": "Portal de consulta de horas y jornadas para socios de la Cooperativa COVIMT 9",
   "start_url": "socio.html",
   "scope": ".",
