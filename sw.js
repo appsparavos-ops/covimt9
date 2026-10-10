@@ -3,27 +3,27 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v2';
+const CACHE_NAME = 'covimt9-v3';
 const STATIC_ASSETS = [
   // Admin App
-  '/index.html',
-  '/cooperativa.js',
-  '/offlineSync.js',
-  '/firebaseConfig.js',
-  '/pinos.png',
-  '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
-  '/icons/icon-maskable-512x512.png',
-  '/icons/apple-touch-icon.png',
+  'index.html',
+  'cooperativa.js',
+  'offlineSync.js',
+  'firebaseConfig.js',
+  'pinos.png',
+  'manifest.json',
+  'icons/icon-192x192.png',
+  'icons/icon-512x512.png',
+  'icons/icon-maskable-512x512.png',
+  'icons/apple-touch-icon.png',
   // Socio App
-  '/socio.html',
-  '/socio.js',
-  '/manifest-socio.json',
-  '/icons-socio/icon-192x192.png',
-  '/icons-socio/icon-512x512.png',
-  '/icons-socio/icon-maskable-512x512.png',
-  '/icons-socio/apple-touch-icon.png'
+  'socio.html',
+  'socio.js',
+  'manifest-socio.json',
+  'icons-socio/icon-192x192.png',
+  'icons-socio/icon-512x512.png',
+  'icons-socio/icon-maskable-512x512.png',
+  'icons-socio/apple-touch-icon.png'
 ];
 
 // CDN resources (cached on first fetch)
@@ -42,8 +42,15 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('[SW] Caching static assets');
-        return cache.addAll(STATIC_ASSETS);
+        console.log('[SW] Caching static assets (non-blocking)');
+        // Cache each asset individually so one failure doesn't block all
+        return Promise.allSettled(
+          STATIC_ASSETS.map((asset) => 
+            cache.add(asset).catch((err) => {
+              console.warn('[SW] Failed to cache:', asset, err.message);
+            })
+          )
+        );
       })
       .then(() => self.skipWaiting())
   );
@@ -120,7 +127,8 @@ self.addEventListener('fetch', (event) => {
       }).catch(() => {
         // Fallback for navigation requests
         if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
+          // Try to serve the requested HTML page from cache, fallback to index.html
+          return caches.match(event.request).then(r => r || caches.match('index.html'));
         }
         return new Response('Offline', { status: 503 });
       });
