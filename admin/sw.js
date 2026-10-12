@@ -3,12 +3,12 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v15-planilla-cierre-objetivo-4';
+const CACHE_NAME = 'covimt9-v16-periodos-habilitados';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
   'bitacora.html',
-  'cooperativa.js?v=20261012-15',
+  'cooperativa.js?v=20261012-16',
   'offlineSync.js?v=20261012-11',
   'firebaseConfig.js',
   'pinos.png',

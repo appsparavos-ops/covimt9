@@ -2,8 +2,9 @@
 let db = null;
 let memberSocios = []; // Will hold the current member's socio data (as an array for compatibility)
 let memberRegistros = []; // Will hold the current member's jornada records
-let memberConfig = { objetivoHoras: 4 }; // Default config, will be fetched
-let memberSaldosHistoricos = {}; // Will hold the current member's historical balances
+let memberConfig = { objetivoHoras: 4, periodoInicial: '' }; // Configuración global y período de apertura
+let memberSaldosHistoricos = {}; // Saldos históricos del socio actual
+let memberPeriodosHabilitados = new Set(); // Períodos con saldo de apertura generado por un cierre
 let memberObjetivosMensuales = {}; // Objetivo global por período YYYY-MM
 let currentMemberSocioId = null;
 const memberHoy = new Date();
@@ -116,7 +117,10 @@ function esNucleoExonerado(socio) {
 function normalizarConfig(data = {}) {
   const valor = Number(data.objetivoHoras);
   const objetivoHoras = Number.isFinite(valor) && valor >= 0 ? valor : 4;
-  return { objetivoHoras };
+  const periodoInicial = /^\d{4}-\d{2}$/.test(String(data.periodoInicial || ''))
+    ? String(data.periodoInicial)
+    : '';
+  return { objetivoHoras, periodoInicial };
 }
 
 function obtenerComisionAsignadaNucleo(socio) {
@@ -385,6 +389,7 @@ async function handleMemberLogout() {
     memberSocios = [];
     memberRegistros = [];
     memberSaldosHistoricos = {};
+    memberPeriodosHabilitados = new Set();
     memberObjetivosMensuales = {};
     showToast("Sesión cerrada.", "info");
     showMemberLogin();
@@ -395,6 +400,20 @@ function establecerPeriodoActualDispositivo() {
   const fechaDispositivo = new Date();
   memberPeriodoAnio = String(fechaDispositivo.getFullYear());
   memberPeriodoMes = String(fechaDispositivo.getMonth() + 1).padStart(2, '0');
+}
+
+async function refrescarSaldosPeriodosSocio(socioId) {
+  const saldosSnapshot = await db.collection('saldosHistoricos').get();
+  memberSaldosHistoricos = {};
+  memberPeriodosHabilitados = new Set();
+  saldosSnapshot.docs.forEach(doc => {
+    const separador = doc.id.lastIndexOf('_');
+    if (separador < 0) return;
+    const sId = doc.id.substring(0, separador);
+    const period = doc.id.substring(separador + 1);
+    if (/^\d{4}-\d{2}$/.test(period)) memberPeriodosHabilitados.add(period);
+    if (sId === socioId) memberSaldosHistoricos[doc.id] = doc.data();
+  });
 }
 
 async function loadMemberData(socioId) {
@@ -430,15 +449,8 @@ async function loadMemberData(socioId) {
     const registrosSnapshot = await db.collection('registros').where('socioId', '==', socioId).get();
     memberRegistros = registrosSnapshot.docs.map(doc => doc.data());
 
-    // Fetch member's historical balances
-    const saldosSnapshot = await db.collection('saldosHistoricos').get(); // Fetch all, then filter client-side
-    memberSaldosHistoricos = {};
-    saldosSnapshot.docs.forEach(doc => {
-      const [sId, period] = doc.id.split('_');
-      if (sId === socioId) {
-        memberSaldosHistoricos[doc.id] = doc.data();
-      }
-    });
+    // Cargar saldos propios y períodos globalmente habilitados por cierres.
+    await refrescarSaldosPeriodosSocio(socioId);
 
     inicializarSelectorPeriodoSocio();
     renderMemberDashboard();
@@ -505,7 +517,13 @@ function inicializarSelectorPeriodoSocio() {
   const yearSelect = document.getElementById('member-period-year');
   if (!monthSelect || !yearSelect) return;
 
-  const anios = new Set([String(new Date().getFullYear())]);
+  const actual = new Date().getFullYear();
+  const anios = new Set();
+  for (let desplazamiento = -2; desplazamiento <= 5; desplazamiento++) {
+    anios.add(String(actual + desplazamiento));
+  }
+  const inicial = obtenerPeriodoInicialSocio();
+  if (inicial) anios.add(inicial.substring(0, 4));
   memberRegistros.forEach(r => {
     const anio = String(r.fecha || '').split('-')[0];
     if (/^\d{4}$/.test(anio)) anios.add(anio);
@@ -526,12 +544,18 @@ function inicializarSelectorPeriodoSocio() {
   monthSelect.value = memberPeriodoMes;
 }
 
-function cambiarPeriodoSocio() {
+async function cambiarPeriodoSocio() {
   const monthSelect = document.getElementById('member-period-month');
   const yearSelect = document.getElementById('member-period-year');
   if (!monthSelect || !yearSelect) return;
   memberPeriodoMes = monthSelect.value;
   memberPeriodoAnio = yearSelect.value;
+  try {
+    // Volver a consultar permite detectar un cierre realizado mientras el portal estaba abierto.
+    if (currentMemberSocioId) await refrescarSaldosPeriodosSocio(currentMemberSocioId);
+  } catch (error) {
+    console.error('No se pudieron actualizar los períodos:', error);
+  }
   renderMemberDashboard();
   renderMemberJornadasTable();
 }
@@ -540,8 +564,52 @@ function nombrePeriodoSocio() {
   return `${MEMBER_MESES[Number(memberPeriodoMes) - 1]} de ${memberPeriodoAnio}`;
 }
 
+function obtenerPeriodoInicialSocio() {
+  if (memberConfig.periodoInicial) return memberConfig.periodoInicial;
+  const periodos = [...memberPeriodosHabilitados].sort();
+  if (periodos.length) return periodos[0];
+  const fechaAlta = String(memberSocios[0]?.fechaAlta || '');
+  if (/^\d{4}-\d{2}/.test(fechaAlta)) return fechaAlta.substring(0, 7);
+  return '';
+}
+
+function obtenerEstadoPeriodoSocio(anio = memberPeriodoAnio, mes = memberPeriodoMes) {
+  const periodo = `${anio}-${String(mes).padStart(2, '0')}`;
+  const inicial = obtenerPeriodoInicialSocio();
+  if (inicial && periodo < inicial) return { disponible: false, motivo: 'anterior', periodo, inicial };
+  // El período inicial equivale a haber cerrado el mes anterior con los saldos cargados.
+  if (inicial && periodo === inicial) return { disponible: true, motivo: 'inicial', periodo, inicial };
+  // Cada cierre crea saldos de apertura para el mes siguiente.
+  if (memberPeriodosHabilitados.has(periodo)) return { disponible: true, motivo: 'cerrado', periodo, inicial };
+  return { disponible: false, motivo: 'pendiente', periodo, inicial };
+}
+
+function actualizarDisponibilidadPeriodoSocio() {
+  const estado = obtenerEstadoPeriodoSocio();
+  const aviso = document.getElementById('member-period-status');
+  const datos = document.getElementById('member-period-data');
+  if (!aviso || !datos) return estado;
+
+  datos.classList.toggle('hidden', !estado.disponible);
+  aviso.classList.toggle('hidden', estado.disponible);
+  if (!estado.disponible) {
+    const titulo = document.getElementById('member-period-status-title');
+    const detalle = document.getElementById('member-period-status-detail');
+    if (estado.motivo === 'anterior') {
+      titulo.textContent = 'No hay información para este período';
+      detalle.textContent = `La operación comienza en ${estado.inicial}. Los meses anteriores no tienen datos cargados.`;
+    } else {
+      titulo.textContent = 'Período todavía no disponible';
+      detalle.textContent = `La información de ${estado.periodo} aparecerá después de que la Administración cierre el mes anterior.`;
+    }
+  }
+  return estado;
+}
+
 function renderMemberDashboard() {
   if (!currentMemberSocioId || memberSocios.length === 0) return;
+  const estadoPeriodo = actualizarDisponibilidadPeriodoSocio();
+  if (!estadoPeriodo.disponible) return;
 
   const socio = memberSocios[0]; // The current member's socio data
 
@@ -602,6 +670,7 @@ function renderMemberJornadasTable() {
   const tbody = document.getElementById('member-jornadas-table-body');
   if (!tbody) return;
   tbody.innerHTML = '';
+  if (!obtenerEstadoPeriodoSocio().disponible) return;
   const periodLabel = document.getElementById('member-history-period-label');
   if (periodLabel) periodLabel.textContent = `Período: ${nombrePeriodoSocio()}`;
 

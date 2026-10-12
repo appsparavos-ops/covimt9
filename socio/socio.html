@@ -30,7 +30,7 @@
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
   <!-- Importar Lógica del Socio -->
-  <script src="socio.js?v=20261012-13" defer></script>
+  <script src="socio.js?v=20261012-14" defer></script>
 
   <script>
     tailwind.config = {
@@ -173,6 +173,18 @@
           </div>
         </div>
 
+        <!-- Estado del período seleccionado -->
+        <div id="member-period-status" class="hidden bg-amber-50 border border-amber-200 p-5 sm:p-6 rounded-2xl shadow-sm">
+          <div class="flex items-start gap-3">
+            <i data-lucide="calendar-x" class="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5"></i>
+            <div>
+              <h2 id="member-period-status-title" class="font-bold text-amber-900">Período no disponible</h2>
+              <p id="member-period-status-detail" class="text-sm text-amber-800 mt-1"></p>
+            </div>
+          </div>
+        </div>
+
+        <div id="member-period-data" class="space-y-6">
         <!-- Resumen de Horas -->
         <div class="bg-white p-4 sm:p-6 rounded-2xl border border-slate-100 shadow-sm">
           <h2 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -223,6 +235,7 @@
             </table>
           </div>
         </div>
+        </div><!-- /member-period-data -->
 
         <!-- Aviso PIN por defecto -->
         <div id="member-default-pin-alert" class="hidden bg-amber-50 border border-amber-200 p-5 rounded-2xl shadow-sm">
@@ -301,7 +314,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw-socio.js?v=20261012-13')
+        navigator.serviceWorker.register('sw-socio.js?v=20261012-14')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));

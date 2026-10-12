@@ -1003,9 +1003,13 @@ async function procesarCSV(event) {
 
       // Registrar el período de apertura para impedir que la Planilla muestre
       // meses posteriores antes del cierre correspondiente.
+      const fechaCierreInicial = new Date(Number(anio), Number(mes) - 2, 1);
+      const periodoCierreAnteriorSimulado = `${fechaCierreInicial.getFullYear()}-${String(fechaCierreInicial.getMonth() + 1).padStart(2, '0')}`;
       await db.collection('config').doc('metaGlobal').set({
         objetivoHoras: 4,
-        periodoInicial: `${anio}-${String(mes).padStart(2, '0')}`
+        periodoInicial: `${anio}-${String(mes).padStart(2, '0')}`,
+        cierreAnteriorSimulado: true,
+        periodoCierreAnteriorSimulado
       }, { merge: true });
 
       registrarLog("Sincronización CSV", `CARGA MASIVA - Archivo: ${file.name}. Período: ${mes}/${anio}. Se sincronizaron ${datos.length} socios.`);
@@ -1933,23 +1937,31 @@ function periodoAnterior(anio, mes) {
   };
 }
 
-function periodoPlanillaHabilitado(anio, mes) {
+function obtenerEstadoPeriodoPlanilla(anio, mes) {
   const periodo = `${anio}-${String(mes).padStart(2, '0')}`;
-  if (config.periodoInicial && periodo === config.periodoInicial) return true;
+  if (config.periodoInicial && periodo < config.periodoInicial) {
+    return { habilitado: false, motivo: 'anterior', periodo, inicial: config.periodoInicial };
+  }
+  // El período inicial simula el cierre anterior mediante sus saldos de apertura.
+  if (config.periodoInicial && periodo === config.periodoInicial) {
+    return { habilitado: true, motivo: 'inicial', periodo, inicial: config.periodoInicial };
+  }
 
   // El cierre del mes anterior crea un saldo de apertura para cada socio.
-  // Si no existe ninguno, el período siguiente todavía no está habilitado.
-  const tieneSaldoApertura = Object.keys(saldosHistoricos).some(clave =>
-    clave.endsWith(`_${periodo}`)
-  );
-  if (tieneSaldoApertura) return true;
+  const tieneSaldoApertura = Object.keys(saldosHistoricos).some(clave => clave.endsWith(`_${periodo}`));
+  if (tieneSaldoApertura) return { habilitado: true, motivo: 'cerrado', periodo, inicial: config.periodoInicial };
 
   // Compatibilidad con instalaciones anteriores que aún no tienen período inicial.
   if (!config.periodoInicial && Object.keys(saldosHistoricos).length === 0) {
     const ahora = new Date();
-    return periodo === `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}`;
+    const actual = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}`;
+    if (periodo === actual) return { habilitado: true, motivo: 'compatibilidad', periodo, inicial: '' };
   }
-  return false;
+  return { habilitado: false, motivo: 'pendiente', periodo, inicial: config.periodoInicial };
+}
+
+function periodoPlanillaHabilitado(anio, mes) {
+  return obtenerEstadoPeriodoPlanilla(anio, mes).habilitado;
 }
 
 function renderPlanilla() {
@@ -1959,11 +1971,15 @@ function renderPlanilla() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  if (!periodoPlanillaHabilitado(anio, mes)) {
+  const estadoPeriodo = obtenerEstadoPeriodoPlanilla(anio, mes);
+  if (!estadoPeriodo.habilitado) {
     const anterior = periodoAnterior(anio, mes);
+    const esAnterior = estadoPeriodo.motivo === 'anterior';
     tbody.innerHTML = `<tr><td colspan="7" class="py-8 px-4 text-center">
-      <div class="font-bold text-amber-700">Período todavía no habilitado</div>
-      <div class="mt-1 text-sm text-slate-500">Para mostrar ${String(mes).padStart(2, '0')}/${anio}, primero debe cerrar ${anterior.mes}/${anterior.anio}.</div>
+      <div class="font-bold text-amber-700">${esAnterior ? 'No hay información para este período' : 'Período todavía no habilitado'}</div>
+      <div class="mt-1 text-sm text-slate-500">${esAnterior
+        ? `La operación comienza en ${estadoPeriodo.inicial}. Los meses anteriores no tienen datos cargados.`
+        : `Para mostrar ${String(mes).padStart(2, '0')}/${anio}, primero debe cerrar ${anterior.mes}/${anterior.anio}.`}</div>
     </td></tr>`;
     return;
   }
