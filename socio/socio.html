@@ -30,7 +30,7 @@
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
   <!-- Importar Lógica del Socio -->
-  <script src="socio.js?v=20261012-14" defer></script>
+  <script src="socio.js?v=20261012-17" defer></script>
 
   <script>
     tailwind.config = {
@@ -127,10 +127,15 @@
               <h1 class="text-lg font-bold tracking-tight leading-none">Portal Socio: <span id="member-name-display"></span></h1>
             </div>
           </div>
-          <!-- Botón de Cerrar Sesión -->
-          <button onclick="handleMemberLogout()" class="p-2 hover:bg-red-700 text-white rounded-lg transition" title="Cerrar Sesión">
-            <i data-lucide="log-out" class="w-5 h-5"></i>
-          </button>
+          <div class="flex items-center gap-1">
+            <button onclick="openMemberSettings()" class="relative p-2 hover:bg-brand-700 text-white rounded-lg transition" title="Configuración" aria-label="Abrir configuración">
+              <i data-lucide="settings" class="w-5 h-5"></i>
+              <span id="member-settings-pin-dot" class="hidden absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-300 ring-2 ring-brand-700" aria-label="PIN predeterminado pendiente de cambiar"></span>
+            </button>
+            <button onclick="handleMemberLogout()" class="p-2 hover:bg-red-700 text-white rounded-lg transition" title="Cerrar Sesión" aria-label="Cerrar sesión">
+              <i data-lucide="log-out" class="w-5 h-5"></i>
+            </button>
+          </div>
         </div>
       </div>
     </header>
@@ -237,30 +242,39 @@
         </div>
         </div><!-- /member-period-data -->
 
-        <!-- Aviso PIN por defecto -->
-        <div id="member-default-pin-alert" class="hidden bg-amber-50 border border-amber-200 p-5 rounded-2xl shadow-sm">
+      </div>
+    </main>
+  </div>
+
+  <!-- Configuración del Portal Socio -->
+  <div id="modal-member-settings" onclick="if(event.target===this) closeMemberSettings()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100 max-h-[90vh] overflow-y-auto">
+      <div class="bg-gradient-to-r from-brand-800 to-brand-600 text-white p-4 flex items-center justify-between sticky top-0">
+        <h3 class="font-bold text-sm flex items-center gap-2"><i data-lucide="settings" class="w-4 h-4"></i> Configuración</h3>
+        <button type="button" onclick="closeMemberSettings()" class="p-1.5 hover:bg-white/15 rounded-lg transition" title="Cerrar configuración" aria-label="Cerrar configuración">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-5 sm:p-6 space-y-5">
+        <div id="member-default-pin-alert" class="hidden bg-amber-50 border border-amber-200 p-4 rounded-xl">
           <div class="flex items-start gap-3">
-            <i data-lucide="alert-triangle" class="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5"></i>
+            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"></i>
             <div class="flex-1">
-              <h3 class="font-bold text-amber-800 text-sm">Seguridad: PIN sin cambiar</h3>
-              <p class="text-xs text-amber-700 mt-1">Estás usando el PIN por defecto (<b>1234</b>). Por seguridad, te recomendamos cambiarlo por uno personal.</p>
+              <h4 class="font-bold text-amber-800 text-sm">Seguridad: PIN sin cambiar</h4>
+              <p class="text-xs text-amber-700 mt-1">Estás usando el PIN por defecto (<b>1234</b>). Te recomendamos cambiarlo por uno personal.</p>
             </div>
           </div>
         </div>
-
-        <!-- Cambiar PIN -->
-        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h2 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <i data-lucide="key-round" class="w-6 h-6 text-blue-600"></i> Cambiar mi PIN de Acceso
-          </h2>
-          <p class="text-xs text-slate-500 mb-4">Ingresá tu PIN actual y luego el nuevo PIN de 4 dígitos que quieras usar.</p>
-          <form onsubmit="event.preventDefault(); handleChangeMemberPIN();" class="space-y-4 max-w-sm">
+        <div>
+          <h4 class="font-bold text-slate-800 flex items-center gap-2"><i data-lucide="key-round" class="w-5 h-5 text-blue-600"></i> Cambiar mi PIN</h4>
+          <p class="text-xs text-slate-500 mt-1 mb-4">Ingresá tu PIN actual y luego el nuevo PIN de 4 dígitos.</p>
+          <form onsubmit="event.preventDefault(); handleChangeMemberPIN();" class="space-y-4">
             <div>
               <label for="member-current-pin" class="block text-xs font-semibold text-slate-500 mb-1">PIN Actual</label>
               <input type="password" id="member-current-pin" inputmode="numeric" maxlength="4" required class="w-full rounded-xl border border-slate-200 p-3 text-sm text-center tracking-[0.5em] text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="••••">
             </div>
             <div>
-              <label for="member-new-pin" class="block text-xs font-semibold text-slate-500 mb-1">PIN Nuevo (4 dígitos)</label>
+              <label for="member-new-pin" class="block text-xs font-semibold text-slate-500 mb-1">PIN Nuevo</label>
               <input type="password" id="member-new-pin" inputmode="numeric" maxlength="4" required class="w-full rounded-xl border border-slate-200 p-3 text-sm text-center tracking-[0.5em] text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="••••">
             </div>
             <div>
@@ -273,7 +287,7 @@
           </form>
         </div>
       </div>
-    </main>
+    </div>
   </div>
 
   <!-- Modal de Confirmación Genérico (Socio) -->
@@ -314,7 +328,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw-socio.js?v=20261012-14')
+        navigator.serviceWorker.register('sw-socio.js?v=20261012-17')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));

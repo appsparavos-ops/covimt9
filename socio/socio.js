@@ -382,6 +382,7 @@ async function handleMemberLogin() {
 
 async function handleMemberLogout() {
   if (await showConfirmModal("Salir del Portal", "¿Confirmas que deseas cerrar tu sesión de socio?")) {
+    closeMemberSettings();
     registrarLog("Salida Portal Socio", `LOGOUT - El socio ID: ${currentMemberSocioId} cerró su sesión.`);
     localStorage.removeItem('memberSocioId');
     localStorage.removeItem('memberSocioName');
@@ -709,8 +710,25 @@ function renderMemberJornadasTable() {
   });
 }
 // ============================================================
-//  CAMBIO DE PIN POR EL SOCIO
+//  CONFIGURACIÓN Y CAMBIO DE PIN POR EL SOCIO
 // ============================================================
+
+function openMemberSettings() {
+  const modal = document.getElementById('modal-member-settings');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+  setTimeout(() => document.getElementById('member-current-pin')?.focus(), 50);
+}
+
+function closeMemberSettings() {
+  const modal = document.getElementById('modal-member-settings');
+  if (modal) modal.classList.add('hidden');
+  ['member-current-pin', 'member-new-pin', 'member-confirm-pin'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+}
 
 const DEFAULT_PIN_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // SHA-256 de "1234"
 
@@ -724,13 +742,10 @@ async function hashPIN(pin) {
 
 function checkDefaultPIN(socioData) {
   const alert = document.getElementById('member-default-pin-alert');
-  if (!alert) return;
-  
-  if (socioData.pinHash === DEFAULT_PIN_HASH) {
-    alert.classList.remove('hidden');
-  } else {
-    alert.classList.add('hidden');
-  }
+  const dot = document.getElementById('member-settings-pin-dot');
+  const usaPinInicial = socioData.pinHash === DEFAULT_PIN_HASH;
+  if (alert) alert.classList.toggle('hidden', !usaPinInicial);
+  if (dot) dot.classList.toggle('hidden', !usaPinInicial);
 }
 
 async function handleChangeMemberPIN() {
@@ -787,9 +802,12 @@ async function handleChangeMemberPIN() {
     document.getElementById('member-new-pin').value = '';
     document.getElementById('member-confirm-pin').value = '';
 
-    // Ocultar aviso de PIN por defecto
+    // Ocultar aviso de PIN por defecto y cerrar Configuración.
     const alert = document.getElementById('member-default-pin-alert');
+    const dot = document.getElementById('member-settings-pin-dot');
     if (alert) alert.classList.add('hidden');
+    if (dot) dot.classList.add('hidden');
+    closeMemberSettings();
 
   } catch (error) {
     showToast('Error al cambiar PIN: ' + error.message, 'error');
