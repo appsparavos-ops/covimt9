@@ -35,7 +35,7 @@
   <!-- Módulo Offline Sync -->
   <script src="offlineSync.js"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
-  <script src="cooperativa.js" defer></script>
+  <script src="cooperativa.js?v=20261012-10" defer></script>
 
   <script>
     tailwind.config = {
@@ -267,6 +267,15 @@
               <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Horas del Mes</span>
               <h3 id="kpi-total-hours" class="text-2xl font-bold text-slate-900 mt-1">0Hs</h3>
               <p id="kpi-hours-period" class="text-[10px] text-slate-500 mt-0.5">-</p>
+              <div class="grid grid-cols-2 gap-1.5 mt-2" aria-label="Período del Panel General">
+                <select id="dashboard-mes" onchange="cambiarPeriodoAdminDesde('dashboard')" class="min-w-0 rounded-lg border border-emerald-200 bg-white px-1.5 py-1 text-[10px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500" title="Mes del Panel General">
+                  <option value="01">Enero</option><option value="02">Febrero</option><option value="03">Marzo</option>
+                  <option value="04">Abril</option><option value="05">Mayo</option><option value="06">Junio</option>
+                  <option value="07">Julio</option><option value="08">Agosto</option><option value="09">Septiembre</option>
+                  <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+                </select>
+                <select id="dashboard-anio" onchange="cambiarPeriodoAdminDesde('dashboard')" class="min-w-0 rounded-lg border border-emerald-200 bg-white px-1.5 py-1 text-[10px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500" title="Año del Panel General"></select>
+              </div>
             </div>
             <div class="p-3.5 bg-emerald-50 rounded-xl text-emerald-600">
               <i data-lucide="hourglass" class="w-7 h-7"></i>
@@ -309,8 +318,8 @@
 
         <!-- Alertas de Horas en Riesgo -->
         <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 class="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
-            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-500"></i> Alerta de Horas Realizadas Menores a 4 hs (Junio)
+          <h3 id="titulo-alerta-riesgo" class="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-500"></i> <span id="texto-alerta-riesgo">Alerta de Horas Realizadas Menores a 4 hs</span>
           </h3>
           <p class="text-xs text-slate-500 mb-4">El reglamento establece que los núcleos familiares deben registrar como mínimo 4 horas en el mes; de lo contrario, las horas acumuladas no serán computadas y se perderán al cierre del período.</p>
           <div class="overflow-x-auto">
@@ -500,17 +509,17 @@
             </div>
             
             <div class="flex flex-wrap gap-2 items-center">
-              <select id="planilla-anio" onchange="renderPlanilla()" class="rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
-                <option value="2026" selected>2026</option>
+              <select id="planilla-anio" onchange="cambiarPeriodoAdminDesde('planilla')" class="rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+                <option value="2026">2026</option>
                 <option value="2027">2027</option>
               </select>
-              <select id="planilla-mes" onchange="renderPlanilla()" class="rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
+              <select id="planilla-mes" onchange="cambiarPeriodoAdminDesde('planilla')" class="rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500">
                 <option value="01">Enero</option>
                 <option value="02">Febrero</option>
                 <option value="03">Marzo</option>
                 <option value="04">Abril</option>
                 <option value="05">Mayo</option>
-                <option value="06" selected>Junio</option>
+                <option value="06">Junio</option>
                 <option value="07">Julio</option>
                 <option value="08">Agosto</option>
                 <option value="09">Septiembre</option>
@@ -578,11 +587,11 @@
             </div>
             <div>
               <label for="filter-historial-mes" class="block text-xs font-semibold text-slate-500 mb-1">Mes</label>
-              <select id="filter-historial-mes" onchange="applyFilters()" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500"></select>
+              <select id="filter-historial-mes" onchange="cambiarPeriodoAdminDesde('historial')" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500"></select>
             </div>
             <div>
               <label for="filter-historial-anio" class="block text-xs font-semibold text-slate-500 mb-1">Año</label>
-              <select id="filter-historial-anio" onchange="applyFilters()" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500"></select>
+              <select id="filter-historial-anio" onchange="cambiarPeriodoAdminDesde('historial')" class="w-full rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-brand-500"></select>
             </div>
             <div>
               <label for="filter-estado" class="block text-xs font-semibold text-slate-500 mb-1">Estado de Jornada</label>
@@ -1091,22 +1100,12 @@
     // --- Registrar Service Worker ---
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
-        // Limpiar SWs viejos que puedan estar causando conflictos
-        try {
-          const registrations = await navigator.serviceWorker.getRegistrations();
-          for (const reg of registrations) {
-            const swUrl = reg.active?.scriptURL || reg.installing?.scriptURL || '';
-            if (swUrl.includes('sw-socio.js')) {
-              console.log('[PWA] Desregistrando SW viejo:', swUrl);
-              await reg.unregister();
-            }
-          }
-        } catch (e) {
-          console.warn('[PWA] Error limpiando SWs viejos:', e);
-        }
+        // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js')
+        navigator.serviceWorker.register('sw.js?v=20261012-10')
           .then((reg) => {
+            if (reg.waiting) reg.waiting.postMessage('skipWaiting');
+            reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));
             console.log('[PWA] Service Worker registrado:', reg.scope);
             
             // --- Auto-actualización ---

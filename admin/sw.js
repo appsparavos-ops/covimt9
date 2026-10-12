@@ -3,13 +3,13 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v8-pdf-firma-responsable';
+const CACHE_NAME = 'covimt9-v10-app-visible';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
   'bitacora.html',
   'bitacora.js',
-  'cooperativa.js',
+  'cooperativa.js?v=20261012-10',
   'offlineSync.js',
   'firebaseConfig.js',
   'pinos.png',
@@ -32,14 +32,7 @@ const STATIC_ASSETS = [
   'vendor/fonts/outfit-500.ttf',
   'vendor/fonts/outfit-600.ttf',
   'vendor/fonts/outfit-700.ttf',
-  // Socio App
-  'socio.html',
-  'socio.js',
-  'manifest-socio.json',
-  'icons-socio/icon-192x192.png',
-  'icons-socio/icon-512x512.png',
-  'icons-socio/icon-maskable-512x512.png',
-  'icons-socio/apple-touch-icon.png'
+
 ];
 
 // Las librerías se sirven desde vendor/ y se precargan durante la instalación.
@@ -71,7 +64,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name !== CACHE_NAME)
+          .filter((name) => name.startsWith('covimt9-') && !name.startsWith('covimt9-socio-') && name !== CACHE_NAME)
           .map((name) => {
             console.log('[SW] Deleting old cache:', name);
             return caches.delete(name);
@@ -102,8 +95,13 @@ self.addEventListener('fetch', (event) => {
   // For static assets: cache-first with network fallback
   // For navigation (HTML pages): network-first with cache fallback
   const isNavigation = event.request.mode === 'navigate';
+  const isOwnAppCode = url.origin === self.location.origin && (
+    url.pathname.endsWith('/cooperativa.js') ||
+    url.pathname.endsWith('/offlineSync.js') ||
+    url.pathname.endsWith('/bitacora.js')
+  );
 
-  if (isNavigation) {
+  if (isNavigation || isOwnAppCode) {
     // Network-first: try server, fallback to cache if offline
     event.respondWith(
       fetch(event.request)

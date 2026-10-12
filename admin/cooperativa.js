@@ -5,6 +5,10 @@ let registros = [];
 let config = { objetivoHoras: 40 };
 let saldosHistoricos = {};
 let modoEdicion = false; // Variable para controlar el modo edición
+const fechaDispositivoAdmin = new Date();
+let periodoAdminAnio = String(fechaDispositivoAdmin.getFullYear());
+let periodoAdminMes = String(fechaDispositivoAdmin.getMonth() + 1).padStart(2, '0');
+const MESES_ADMIN = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 let COMISIONES_VALIDAS = ["Ninguna"]; // Inicialmente solo "Ninguna", se cargará de Firebase
 const COMISIONES_LEGACY = {
   Directiva: "Consejo Directivo",
@@ -24,6 +28,7 @@ function formatHours(value) {
 // Inicializar iconos de Lucide al cargar el DOM
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
+  inicializarPeriodoAdminDesdeDispositivo();
   checkAuthAndInit();
 
   // Asignar manejadores de eventos a los botones para evitar ReferenceError por 'defer'
@@ -185,6 +190,7 @@ function startFirestoreSync() {
   // 2. Escuchar Jornadas
   db.collection('registros').onSnapshot((snapshot) => {
     registros = snapshot.docs.map(doc => doc.data());
+    actualizarOpcionesPeriodoAdmin();
     renderJornadasActivas();
     renderDashboard();
     renderPlanilla();
@@ -210,6 +216,7 @@ function startFirestoreSync() {
     snapshot.docs.forEach(doc => {
       saldosHistoricos[doc.id] = doc.data();
     });
+    actualizarOpcionesPeriodoAdmin();
     renderPlanilla();
     renderDashboard();
   });
@@ -1105,9 +1112,7 @@ async function simularCierreMensual() {
     }
     registrarLog("Cierre Mensual", `CIERRE DE PERÍODO: ${mes}/${anio}. Se generaron los saldos y arrastres para ${sigMesStr}/${sigAnioStr}.`);
     showToast(`Cierre procesado. Período ${sigMesStr}/${sigAnioStr} habilitado.`, "success");
-    document.getElementById('planilla-anio').value = sigAnioStr;
-    document.getElementById('planilla-mes').value = sigMesStr;
-    renderPlanilla();
+    establecerPeriodoAdmin(sigAnioStr, sigMesStr, true);
   } catch (err) {
     showToast("Error al realizar cierre: " + err.message, "error");
   }
@@ -1268,6 +1273,98 @@ function obtenerSaldoHistoricoAlMes(socioId, anio, mes) {
     return saldosHistoricos[clave];
   }
   return { deudaAnterior: 0, remanenteAnterior: 0, tesoreriaAcumulada: 0 };
+}
+
+// --- PERÍODO GLOBAL DEL ADMIN ---
+function obtenerAniosDisponiblesAdmin() {
+  const actual = new Date().getFullYear();
+  const anios = new Set();
+  for (let i = -2; i <= 5; i++) anios.add(String(actual - i));
+  registros.forEach(r => {
+    const anio = String(r.fecha || '').split('-')[0];
+    if (/^\d{4}$/.test(anio)) anios.add(anio);
+  });
+  Object.keys(saldosHistoricos).forEach(clave => {
+    const periodo = clave.substring(clave.lastIndexOf('_') + 1);
+    const anio = periodo.split('-')[0];
+    if (/^\d{4}$/.test(anio)) anios.add(anio);
+  });
+  anios.add(periodoAdminAnio);
+  return [...anios].sort((a, b) => Number(b) - Number(a));
+}
+
+function poblarAniosAdmin(select, incluirTodos = false) {
+  if (!select) return;
+  const valorPrevio = select.value;
+  select.innerHTML = incluirTodos ? '<option value="todos">Todos los Años</option>' : '';
+  obtenerAniosDisponiblesAdmin().forEach(anio => {
+    const option = document.createElement('option');
+    option.value = anio;
+    option.textContent = anio;
+    select.appendChild(option);
+  });
+  const valorDeseado = valorPrevio && valorPrevio !== 'todos' ? valorPrevio : periodoAdminAnio;
+  select.value = [...select.options].some(o => o.value === valorDeseado) ? valorDeseado : periodoAdminAnio;
+}
+
+function inicializarPeriodoAdminDesdeDispositivo() {
+  const ahora = new Date();
+  periodoAdminAnio = String(ahora.getFullYear());
+  periodoAdminMes = String(ahora.getMonth() + 1).padStart(2, '0');
+  actualizarOpcionesPeriodoAdmin();
+  sincronizarSelectoresPeriodoAdmin();
+}
+
+function actualizarOpcionesPeriodoAdmin() {
+  poblarAniosAdmin(document.getElementById('dashboard-anio'));
+  poblarAniosAdmin(document.getElementById('planilla-anio'));
+  const historialAnio = document.getElementById('filter-historial-anio');
+  if (historialAnio && historialAnio.options.length > 0) poblarAniosAdmin(historialAnio, true);
+  sincronizarSelectoresPeriodoAdmin();
+}
+
+function sincronizarSelectoresPeriodoAdmin() {
+  const pares = [
+    ['dashboard-mes', 'dashboard-anio'],
+    ['planilla-mes', 'planilla-anio'],
+    ['filter-historial-mes', 'filter-historial-anio']
+  ];
+  pares.forEach(([mesId, anioId]) => {
+    const mesEl = document.getElementById(mesId);
+    const anioEl = document.getElementById(anioId);
+    if (mesEl && [...mesEl.options].some(o => o.value === periodoAdminMes)) mesEl.value = periodoAdminMes;
+    if (anioEl && [...anioEl.options].some(o => o.value === periodoAdminAnio)) anioEl.value = periodoAdminAnio;
+  });
+}
+
+function establecerPeriodoAdmin(anio, mes, renderizar = true) {
+  if (!/^\d{4}$/.test(String(anio)) || !/^(0[1-9]|1[0-2])$/.test(String(mes))) return;
+  periodoAdminAnio = String(anio);
+  periodoAdminMes = String(mes);
+  actualizarOpcionesPeriodoAdmin();
+  sincronizarSelectoresPeriodoAdmin();
+  if (renderizar) {
+    renderDashboard();
+    renderPlanilla();
+    renderHistorialTable();
+  }
+}
+
+function cambiarPeriodoAdminDesde(origen) {
+  const ids = origen === 'dashboard'
+    ? ['dashboard-mes', 'dashboard-anio']
+    : origen === 'planilla'
+      ? ['planilla-mes', 'planilla-anio']
+      : ['filter-historial-mes', 'filter-historial-anio'];
+  const mes = document.getElementById(ids[0])?.value;
+  const anio = document.getElementById(ids[1])?.value;
+
+  // "Todos" sigue disponible como filtro exclusivo del Historial y no altera el período global.
+  if (mes === 'todos' || anio === 'todos') {
+    renderHistorialTable();
+    return;
+  }
+  establecerPeriodoAdmin(anio, mes, true);
 }
 
 // --- MANEJO DE PESTAÑAS (TABS) ---
@@ -1752,8 +1849,8 @@ function isCanvasBlank(canvas) {
 
 // --- PLANILLA DE CÁLCULO ---
 function renderPlanilla() {
-  const anio = document.getElementById('planilla-anio').value;
-  const mes = document.getElementById('planilla-mes').value;
+  const anio = periodoAdminAnio;
+  const mes = periodoAdminMes;
   const tbody = document.getElementById('tbl-planilla-cuerpo');
   if (!tbody) return;
   tbody.innerHTML = '';
@@ -2000,21 +2097,8 @@ function renderHistorialTable() {
 }
 
 function populateMonthYearFilters(monthSelect, yearSelect) {
-  const currentYear = new Date().getFullYear();
-  const currentMonth = (new Date().getMonth() + 1).toString().padStart(2, '0');
+  poblarAniosAdmin(yearSelect, true);
 
-  // Populate years (e.g., current year and a few years back)
-  yearSelect.innerHTML = '<option value="todos">Todos los Años</option>';
-  for (let i = 0; i < 5; i++) { // Last 5 years
-    const year = currentYear - i;
-    const option = document.createElement('option');
-    option.value = year.toString();
-    option.textContent = year.toString();
-    yearSelect.appendChild(option);
-  }
-  yearSelect.value = currentYear.toString(); // Default to current year
-
-  // Populate months
   const months = [
     { value: '01', text: 'Enero' }, { value: '02', text: 'Febrero' },
     { value: '03', text: 'Marzo' }, { value: '04', text: 'Abril' },
@@ -2030,7 +2114,8 @@ function populateMonthYearFilters(monthSelect, yearSelect) {
     option.textContent = m.text;
     monthSelect.appendChild(option);
   });
-  monthSelect.value = currentMonth; // Default to current month
+  monthSelect.value = periodoAdminMes;
+  yearSelect.value = periodoAdminAnio;
 }
 
 function applyFilters() {
@@ -2055,16 +2140,14 @@ function renderDashboard() {
   
   lblGoal.textContent = config.objetivoHoras;
 
-  // Usamos el mes/año seleccionado en la planilla para el dashboard o el actual
-  const anio = document.getElementById('planilla-anio')?.value || new Date().getFullYear().toString();
-  const mes = document.getElementById('planilla-mes')?.value || (new Date().getMonth() + 1).toString().padStart(2, '0');
-  
-  // Actualizar texto del período en el dashboard
-  const mesesNombre = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  const anio = periodoAdminAnio;
+  const mes = periodoAdminMes;
+  sincronizarSelectoresPeriodoAdmin();
+
   const periodEl = document.getElementById('kpi-hours-period');
-  if (periodEl) {
-    periodEl.textContent = `${mesesNombre[parseInt(mes)]} ${anio}`;
-  }
+  if (periodEl) periodEl.textContent = `${MESES_ADMIN[parseInt(mes)]} ${anio}`;
+  const textoRiesgo = document.getElementById('texto-alerta-riesgo');
+  if (textoRiesgo) textoRiesgo.textContent = `Alerta de Horas Realizadas Menores a 4 hs (${MESES_ADMIN[parseInt(mes)]} ${anio})`;
   
   // Fecha de referencia para el snapshot (fin de mes)
   const fechaReferencia = `${anio}-${mes}-28`; 
@@ -2088,10 +2171,10 @@ function renderDashboard() {
   const activas = registros.filter(r => r.estado === 'activo').length;
   document.getElementById('kpi-active-jornadas').textContent = activas;
 
-  let totalTesoreria = 0;
-  for (const clave in saldosHistoricos) {
-    totalTesoreria += (saldosHistoricos[clave].tesoreriaAcumulada || 0); // This is a sum, not a display.
-  }
+  const totalTesoreria = socios.reduce((total, socio) => {
+    const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
+    return total + (hist.tesoreriaAcumulada || 0);
+  }, 0);
   document.getElementById('kpi-total-tesoreria').textContent = formatHours(totalTesoreria);
 
   const tbodyRiesgo = document.getElementById('tbl-riesgo-cuerpo');
