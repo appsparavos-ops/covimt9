@@ -2970,40 +2970,48 @@ function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
   }
 
   let firmaY = doc.lastAutoTable.finalY + 12;
-  const altoBloqueResponsable = 30;
+  const altoBloqueResponsable = 34;
   const limitePagina = doc.internal.pageSize.height - 18;
-
-  doc.setTextColor(40, 40, 40);
-  doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  if (firmaY + 10 > limitePagina) {
-    doc.addPage();
-    firmaY = 20;
-  }
-  doc.text('Responsable(s) de la jornada', 20, firmaY);
-  firmaY += 8;
+  const centroFirmaX = doc.internal.pageSize.width / 2;
+  const anchoFirma = 50;
+  const altoFirma = 16;
+  const anchoLinea = 62;
 
   responsables.forEach(responsable => {
     if (firmaY + altoBloqueResponsable > limitePagina) {
       doc.addPage();
       firmaY = 20;
     }
-    doc.setFontSize(9);
-    doc.setFont(undefined, 'bold');
-    doc.text(`Nombre: ${responsable.nombre}`, 25, firmaY + 5);
-    doc.setFont(undefined, 'normal');
-    doc.text('Firma:', 25, firmaY + 13);
+
+    // Firma centrada, línea debajo y nombre del encargado bajo la línea.
     if (responsable.firma) {
       try {
-        doc.addImage(responsable.firma, 'PNG', 48, firmaY + 1, 48, 18);
+        doc.addImage(
+          responsable.firma,
+          'PNG',
+          centroFirmaX - (anchoFirma / 2),
+          firmaY,
+          anchoFirma,
+          altoFirma
+        );
       } catch (e) {
         console.error('No se pudo agregar la firma del responsable al PDF:', e);
-        doc.line(48, firmaY + 17, 98, firmaY + 17);
       }
-    } else {
-      // Compatibilidad visual con jornadas históricas previas a esta mejora.
-      doc.line(48, firmaY + 17, 98, firmaY + 17);
     }
+
+    const lineaY = firmaY + altoFirma + 2;
+    doc.setDrawColor(60, 60, 60);
+    doc.line(
+      centroFirmaX - (anchoLinea / 2),
+      lineaY,
+      centroFirmaX + (anchoLinea / 2),
+      lineaY
+    );
+    doc.setTextColor(40, 40, 40);
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    doc.text(responsable.nombre, centroFirmaX, lineaY + 6, { align: 'center' });
+
     firmaY += altoBloqueResponsable;
   });
 
