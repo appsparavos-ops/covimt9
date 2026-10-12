@@ -2,7 +2,7 @@
 let db = null;
 let socios = [];
 let registros = [];
-let config = { objetivoHoras: 40 };
+let config = { objetivoHoras: 4, periodoInicial: '' };
 let saldosHistoricos = {};
 let objetivosMensuales = {}; // Objetivo global por período YYYY-MM
 let modoEdicion = false; // Variable para controlar el modo edición
@@ -1001,6 +1001,13 @@ async function procesarCSV(event) {
       }
       if (c > 0) await batchS.commit();
 
+      // Registrar el período de apertura para impedir que la Planilla muestre
+      // meses posteriores antes del cierre correspondiente.
+      await db.collection('config').doc('metaGlobal').set({
+        objetivoHoras: 4,
+        periodoInicial: `${anio}-${String(mes).padStart(2, '0')}`
+      }, { merge: true });
+
       registrarLog("Sincronización CSV", `CARGA MASIVA - Archivo: ${file.name}. Período: ${mes}/${anio}. Se sincronizaron ${datos.length} socios.`);
       showToast(`✓ ${datos.length} socios sincronizados correctamente para ${mes}/${anio}.`, 'success');
     } catch (err) {
@@ -1249,8 +1256,12 @@ function esNucleoExonerado(socio) {
 }
 
 function normalizarConfig(data = {}) {
-  const objetivoHoras = parseInt(data.objetivoHoras) || 40;
-  return { objetivoHoras };
+  const valor = Number(data.objetivoHoras);
+  const objetivoHoras = Number.isFinite(valor) && valor >= 0 ? valor : 4;
+  const periodoInicial = /^\d{4}-\d{2}$/.test(String(data.periodoInicial || ''))
+    ? String(data.periodoInicial)
+    : '';
+  return { objetivoHoras, periodoInicial };
 }
 
 function obtenerComisionAsignadaNucleo(socio) {
@@ -1268,7 +1279,7 @@ function obtenerObjetivoHorasPeriodo(anio, mes) {
   const clave = `${anio}-${mes}`;
   return Object.prototype.hasOwnProperty.call(objetivosMensuales, clave)
     ? objetivosMensuales[clave]
-    : config.objetivoHoras;
+    : 4; // Valor predeterminado para períodos todavía no configurados.
 }
 
 function obtenerObjetivoHorasSocio(socio, anio = periodoAdminAnio, mes = periodoAdminMes) {
@@ -1914,12 +1925,48 @@ function isCanvasBlank(canvas) {
 }
 
 // --- PLANILLA DE CÁLCULO ---
+function periodoAnterior(anio, mes) {
+  const fecha = new Date(Number(anio), Number(mes) - 2, 1);
+  return {
+    anio: String(fecha.getFullYear()),
+    mes: String(fecha.getMonth() + 1).padStart(2, '0')
+  };
+}
+
+function periodoPlanillaHabilitado(anio, mes) {
+  const periodo = `${anio}-${String(mes).padStart(2, '0')}`;
+  if (config.periodoInicial && periodo === config.periodoInicial) return true;
+
+  // El cierre del mes anterior crea un saldo de apertura para cada socio.
+  // Si no existe ninguno, el período siguiente todavía no está habilitado.
+  const tieneSaldoApertura = Object.keys(saldosHistoricos).some(clave =>
+    clave.endsWith(`_${periodo}`)
+  );
+  if (tieneSaldoApertura) return true;
+
+  // Compatibilidad con instalaciones anteriores que aún no tienen período inicial.
+  if (!config.periodoInicial && Object.keys(saldosHistoricos).length === 0) {
+    const ahora = new Date();
+    return periodo === `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}`;
+  }
+  return false;
+}
+
 function renderPlanilla() {
   const anio = periodoAdminAnio;
   const mes = periodoAdminMes;
   const tbody = document.getElementById('tbl-planilla-cuerpo');
   if (!tbody) return;
   tbody.innerHTML = '';
+
+  if (!periodoPlanillaHabilitado(anio, mes)) {
+    const anterior = periodoAnterior(anio, mes);
+    tbody.innerHTML = `<tr><td colspan="7" class="py-8 px-4 text-center">
+      <div class="font-bold text-amber-700">Período todavía no habilitado</div>
+      <div class="mt-1 text-sm text-slate-500">Para mostrar ${String(mes).padStart(2, '0')}/${anio}, primero debe cerrar ${anterior.mes}/${anterior.anio}.</div>
+    </td></tr>`;
+    return;
+  }
 
   if (socios.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-slate-400">Sin socios registrados.</td></tr>`;

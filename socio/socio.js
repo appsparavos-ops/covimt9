@@ -2,7 +2,7 @@
 let db = null;
 let memberSocios = []; // Will hold the current member's socio data (as an array for compatibility)
 let memberRegistros = []; // Will hold the current member's jornada records
-let memberConfig = { objetivoHoras: 40 }; // Default config, will be fetched
+let memberConfig = { objetivoHoras: 4 }; // Default config, will be fetched
 let memberSaldosHistoricos = {}; // Will hold the current member's historical balances
 let memberObjetivosMensuales = {}; // Objetivo global por período YYYY-MM
 let currentMemberSocioId = null;
@@ -114,7 +114,8 @@ function esNucleoExonerado(socio) {
 }
 
 function normalizarConfig(data = {}) {
-  const objetivoHoras = parseInt(data.objetivoHoras) || 40;
+  const valor = Number(data.objetivoHoras);
+  const objetivoHoras = Number.isFinite(valor) && valor >= 0 ? valor : 4;
   return { objetivoHoras };
 }
 
@@ -133,7 +134,7 @@ function obtenerObjetivoHorasPeriodoSocio(anio, mes) {
   const clave = `${anio}-${mes}`;
   return Object.prototype.hasOwnProperty.call(memberObjetivosMensuales, clave)
     ? memberObjetivosMensuales[clave]
-    : memberConfig.objetivoHoras;
+    : 4; // Valor predeterminado para períodos todavía no configurados.
 }
 
 function obtenerObjetivoHorasSocio(socio, anio = memberPeriodoAnio, mes = memberPeriodoMes) {
