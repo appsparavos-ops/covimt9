@@ -5,6 +5,13 @@ let memberRegistros = []; // Will hold the current member's jornada records
 let memberConfig = { objetivoHoras: 40 }; // Default config, will be fetched
 let memberSaldosHistoricos = {}; // Will hold the current member's historical balances
 let currentMemberSocioId = null;
+const memberHoy = new Date();
+let memberPeriodoAnio = String(memberHoy.getFullYear());
+let memberPeriodoMes = String(memberHoy.getMonth() + 1).padStart(2, '0');
+const MEMBER_MESES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
 
 // Utility functions (duplicated from cooperativa.js for self-containment)
 function formatHours(value) {
@@ -366,7 +373,15 @@ async function handleMemberLogout() {
   }
 }
 
+function establecerPeriodoActualDispositivo() {
+  const fechaDispositivo = new Date();
+  memberPeriodoAnio = String(fechaDispositivo.getFullYear());
+  memberPeriodoMes = String(fechaDispositivo.getMonth() + 1).padStart(2, '0');
+}
+
 async function loadMemberData(socioId) {
+  // Cada ingreso al portal comienza en el mes y año actuales del dispositivo.
+  establecerPeriodoActualDispositivo();
   document.getElementById('member-name-display').textContent = localStorage.getItem('memberSocioName') || 'Socio';
 
   try {
@@ -399,6 +414,7 @@ async function loadMemberData(socioId) {
       }
     });
 
+    inicializarSelectorPeriodoSocio();
     renderMemberDashboard();
     renderMemberJornadasTable();
 
@@ -458,13 +474,53 @@ async function registrarLog(accion, detalle) {
   } catch (e) { console.error("Error bitácora:", e); }
 }
 
+function inicializarSelectorPeriodoSocio() {
+  const monthSelect = document.getElementById('member-period-month');
+  const yearSelect = document.getElementById('member-period-year');
+  if (!monthSelect || !yearSelect) return;
+
+  const anios = new Set([String(new Date().getFullYear())]);
+  memberRegistros.forEach(r => {
+    const anio = String(r.fecha || '').split('-')[0];
+    if (/^\d{4}$/.test(anio)) anios.add(anio);
+  });
+  Object.keys(memberSaldosHistoricos).forEach(clave => {
+    const periodo = clave.substring(clave.lastIndexOf('_') + 1);
+    const anio = periodo.split('-')[0];
+    if (/^\d{4}$/.test(anio)) anios.add(anio);
+  });
+
+  // Mantener el período elegido si los datos se vuelven a cargar.
+  anios.add(memberPeriodoAnio);
+  yearSelect.innerHTML = [...anios]
+    .sort((a, b) => Number(b) - Number(a))
+    .map(anio => `<option value="${anio}">${anio}</option>`)
+    .join('');
+  yearSelect.value = memberPeriodoAnio;
+  monthSelect.value = memberPeriodoMes;
+}
+
+function cambiarPeriodoSocio() {
+  const monthSelect = document.getElementById('member-period-month');
+  const yearSelect = document.getElementById('member-period-year');
+  if (!monthSelect || !yearSelect) return;
+  memberPeriodoMes = monthSelect.value;
+  memberPeriodoAnio = yearSelect.value;
+  renderMemberDashboard();
+  renderMemberJornadasTable();
+}
+
+function nombrePeriodoSocio() {
+  return `${MEMBER_MESES[Number(memberPeriodoMes) - 1]} de ${memberPeriodoAnio}`;
+}
+
 function renderMemberDashboard() {
   if (!currentMemberSocioId || memberSocios.length === 0) return;
 
   const socio = memberSocios[0]; // The current member's socio data
 
-  const anio = new Date().getFullYear().toString();
-  const mes = (new Date().getMonth() + 1).toString().padStart(2, '0');
+  const anio = memberPeriodoAnio;
+  const mes = memberPeriodoMes;
 
   const objetivo = obtenerObjetivoHorasSocio(socio);
   const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
@@ -507,27 +563,29 @@ function renderMemberDashboard() {
   }
   document.getElementById('member-kpi-saldo').textContent = saldoDisplay;
 
-  let totalTesoreriaAcumulada = 0;
-  for (const clave in memberSaldosHistoricos) {
-    if (clave.startsWith(socio.id + '_')) {
-      totalTesoreriaAcumulada += (memberSaldosHistoricos[clave].tesoreriaAcumulada || 0);
-    }
-  }
-  document.getElementById('member-kpi-tesoreria').textContent = formatHours(totalTesoreriaAcumulada);
+  // El saldo de tesorería es el acumulado almacenado al período seleccionado.
+  document.getElementById('member-kpi-tesoreria').textContent = formatHours(hist.tesoreriaAcumulada || 0);
 }
 
 function renderMemberJornadasTable() {
   const tbody = document.getElementById('member-jornadas-table-body');
   if (!tbody) return;
   tbody.innerHTML = '';
+  const periodLabel = document.getElementById('member-history-period-label');
+  if (periodLabel) periodLabel.textContent = `Período: ${nombrePeriodoSocio()}`;
 
-  if (memberRegistros.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-slate-400">No tienes jornadas registradas.</td></tr>`;
+  const registrosDelPeriodo = memberRegistros.filter(r => {
+    const [anio, mes] = String(r.fecha || '').split('-');
+    return anio === memberPeriodoAnio && mes === memberPeriodoMes;
+  });
+
+  if (registrosDelPeriodo.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-400">No tienes jornadas registradas en ${nombrePeriodoSocio()}.</td></tr>`;
     return;
   }
 
-  // Sort by date descending
-  const sortedRegistros = [...memberRegistros].sort((a, b) => b.fecha.localeCompare(a.fecha));
+  // Ordenar las jornadas del período por fecha descendente.
+  const sortedRegistros = [...registrosDelPeriodo].sort((a, b) => b.fecha.localeCompare(a.fecha));
 
   sortedRegistros.forEach(r => {
     const roundedHs = r.estado === 'finalizado' ? getRoundedHours(r.horaIngreso, r.horaSalida) : 0;

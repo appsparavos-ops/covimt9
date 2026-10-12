@@ -3,7 +3,7 @@
 //  Scope: /socio/ (independiente del admin)
 // ============================================================
 
-const CACHE_NAME = 'covimt9-socio-v3-local-vendor';
+const CACHE_NAME = 'covimt9-socio-v6-periodo-actual';
 const STATIC_ASSETS = [
   'socio.html',
   'socio.js',
