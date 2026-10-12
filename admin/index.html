@@ -415,6 +415,20 @@
 
       <!-- ================= TAB: CONTROL DE JORNADA ================= -->
       <div id="tab-asistencia" class="tab-content space-y-6">
+        <!-- Herramientas administrativas de Jornada (solo visibles en Modo Edición) -->
+        <div id="panel-reporte-jornada" class="hidden bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                <i data-lucide="file-down" class="w-5 h-5 text-red-600"></i> Planilla diaria de trabajadores
+              </h3>
+              <p class="text-xs text-slate-500 mt-1">Genera una planilla PDF de la jornada seleccionada, con horarios, horas y firmas.</p>
+            </div>
+            <button type="button" onclick="openReporteJornadaModal()" class="shrink-0 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2">
+              <i data-lucide="file-text" class="w-4 h-4"></i> Generar PDF de jornada
+            </button>
+          </div>
+        </div>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Iniciar Fichaje de Ingreso -->
           <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm h-fit">
@@ -621,6 +635,36 @@
     </main>
 
     <!-- ================= MODALES OPERATIVOS ================= -->
+
+    <!-- Modal para generar planilla PDF de una jornada -->
+    <div id="modal-reporte-jornada" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-reporte-jornada">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
+        <div class="bg-brand-700 text-white p-4 flex items-center justify-between">
+          <h3 id="titulo-modal-reporte-jornada" class="font-bold flex items-center gap-2">
+            <i data-lucide="calendar-days" class="w-5 h-5 text-emerald-300"></i> PDF de jornada
+          </h3>
+          <button type="button" onclick="closeReporteJornadaModal()" class="text-white/80 hover:text-white transition" aria-label="Cerrar">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <form onsubmit="event.preventDefault(); generarPDFJornadaSeleccionada();" class="p-6 space-y-4">
+          <div>
+            <label for="reporte-jornada-modal-fecha" class="block text-xs font-semibold text-slate-600 mb-1">Fecha de trabajo</label>
+            <input type="date" id="reporte-jornada-modal-fecha" required class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+          </div>
+          <div id="alerta-reporte-jornada" class="hidden p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm flex items-start gap-2" role="alert">
+            <i data-lucide="triangle-alert" class="w-5 h-5 shrink-0 mt-0.5"></i>
+            <span id="texto-alerta-reporte-jornada">No hay socios que hayan trabajado en la jornada seleccionada.</span>
+          </div>
+          <div class="pt-2 flex justify-end gap-3">
+            <button type="button" onclick="closeReporteJornadaModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium hover:bg-slate-50 transition">Cancelar</button>
+            <button type="submit" class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2">
+              <i data-lucide="file-down" class="w-4 h-4"></i> Generar PDF
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <!-- Modal de Egreso y Firma Canvas -->
     <div id="modal-egreso-firma" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">

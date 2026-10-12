@@ -843,6 +843,15 @@ function applyModoEdicion() {
   if (btnTesoreria) {
     btnTesoreria.style.display = modoEdicion ? '' : 'none';
   }
+  // Herramienta PDF de la pestaña Jornada
+  const panelReporteJornada = document.getElementById('panel-reporte-jornada');
+  if (panelReporteJornada) {
+    panelReporteJornada.classList.toggle('hidden', !modoEdicion);
+  }
+  // Si se desactiva el modo edición con el modal abierto, cerrarlo
+  if (!modoEdicion) {
+    document.getElementById('modal-reporte-jornada')?.classList.add('hidden');
+  }
   // Botón de bitácora en la navegación superior
   const btnNavBitacora = document.getElementById('btn-nav-bitacora');
   if (btnNavBitacora) {
@@ -2753,104 +2762,159 @@ function exportReporteTesoreriaPDF() {
 /**
  * Genera un PDF resumen para la cooperativa con todas las jornadas finalizadas de una fecha específica.
  */
-async function generarReporteDiarioPDF() {
-  const fechaReporte = document.getElementById('reporte-jornada-fecha').value;
+function openReporteJornadaModal() {
+  if (!modoEdicion) return;
+  const fechaInput = document.getElementById('reporte-jornada-modal-fecha');
+  if (fechaInput) fechaInput.value = new Date().toISOString().split('T')[0];
+  ocultarAlertaReporteJornada();
+  document.getElementById('modal-reporte-jornada')?.classList.remove('hidden');
+  lucide.createIcons();
+  fechaInput?.focus();
+}
+
+function closeReporteJornadaModal() {
+  document.getElementById('modal-reporte-jornada')?.classList.add('hidden');
+  ocultarAlertaReporteJornada();
+}
+
+function ocultarAlertaReporteJornada() {
+  document.getElementById('alerta-reporte-jornada')?.classList.add('hidden');
+}
+
+function mostrarAlertaReporteJornada(fechaReporte) {
+  const alerta = document.getElementById('alerta-reporte-jornada');
+  const texto = document.getElementById('texto-alerta-reporte-jornada');
+  if (texto) texto.textContent = `No hay socios que hayan trabajado en la jornada del ${formatDateString(fechaReporte)}.`;
+  alerta?.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+/**
+ * Redondea una hora para la planilla con la misma regla usada al fichar:
+ * hasta 15 minutos baja a la hora exacta y desde 45 sube a la siguiente.
+ */
+function redondearHoraParaPlanilla(hora) {
+  if (!hora || !/^\d{1,2}:\d{2}$/.test(hora)) return hora || '-';
+  let [h, m] = hora.split(':').map(Number);
+  if (m <= 15) m = 0;
+  else if (m >= 45) {
+    h = (h + 1) % 24;
+    m = 0;
+  }
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+async function generarPDFJornadaSeleccionada() {
+  const fechaReporte = document.getElementById('reporte-jornada-modal-fecha')?.value;
   if (!fechaReporte) {
     showToast("Por favor, selecciona una fecha para el reporte.", "error");
     return;
   }
+  ocultarAlertaReporteJornada();
+  const generado = generarReporteJornadaPDF(fechaReporte, true);
+  if (generado) closeReporteJornadaModal();
+}
 
-  const jornadasDelDia = registros.filter(r => r.fecha === fechaReporte && r.estado === 'finalizado');
-
-  if (jornadasDelDia.length === 0) {
-    showToast(`No se encontraron jornadas finalizadas para la fecha ${formatDateString(fechaReporte)}.`, "info");
+/**
+ * Conserva el reporte disponible en Historial y usa el mismo formato de planilla.
+ */
+async function generarReporteDiarioPDF() {
+  const fechaReporte = document.getElementById('reporte-jornada-fecha')?.value;
+  if (!fechaReporte) {
+    showToast("Por favor, selecciona una fecha para el reporte.", "error");
     return;
   }
+  generarReporteJornadaPDF(fechaReporte, false);
+}
 
-  // Obtener el responsable de la primera jornada del día para la firma
-  const responsableDia = jornadasDelDia[0].responsable || "________________";
+/**
+ * Genera la planilla con las jornadas finalizadas (las que poseen egreso y firma).
+ * Devuelve true cuando el archivo fue generado.
+ */
+function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
+  const jornadasDelDia = registros
+    .filter(r => r.fecha === fechaReporte && r.estado === 'finalizado')
+    .slice();
 
-  // Ordenar jornadas por número de socio (numérico si es posible, sino alfabético)
+  if (jornadasDelDia.length === 0) {
+    if (mostrarAlertaEnModal) mostrarAlertaReporteJornada(fechaReporte);
+    else showToast(`No hay socios que hayan trabajado en la jornada del ${formatDateString(fechaReporte)}.`, "info");
+    return false;
+  }
+
   jornadasDelDia.sort((a, b) => {
     const numA = parseInt(a.socioId, 10);
     const numB = parseInt(b.socioId, 10);
-    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-    return String(a.socioId).localeCompare(String(b.socioId));
+    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) return numA - numB;
+    return String(a.socioId).localeCompare(String(b.socioId)) ||
+      String(a.trabajadorNombre).localeCompare(String(b.trabajadorNombre));
   });
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
-
   const logo = document.getElementById('logo-coop');
   if (logo && logo.complete && logo.naturalWidth !== 0) {
-    try { doc.addImage(logo, 'PNG', 20, 12, 15, 15); } catch(e) { console.error(e); }
+    try { doc.addImage(logo, 'PNG', 20, 12, 15, 15); } catch (e) { console.error(e); }
   }
 
   doc.setFontSize(16);
   doc.setTextColor(5, 150, 105);
   doc.text("COOPERATIVA DE VIVIENDA COVIMT 9", 105, 20, { align: 'center' });
-
   doc.setFontSize(14);
   doc.setTextColor(40, 40, 40);
-  doc.text(`Reporte Diario de Jornadas - ${formatDateString(fechaReporte)}`, 105, 30, { align: 'center' });
-
+  doc.text(`Jornada de trabajo - ${formatDateString(fechaReporte)}`, 105, 30, { align: 'center' });
   doc.setDrawColor(200, 200, 200);
   doc.line(20, 35, 190, 35);
 
-  const tableColumnTitles = ["Nº Socio", "Nombre Trabajador", "Entrada", "Salida", "Horas", "Firma"];
   const tableRows = jornadasDelDia.map(r => [
-    r.socioId,
-    r.trabajadorNombre,
-    r.horaIngreso,
-    r.horaSalida, // Display original exit time
-    getRoundedHours(r.horaIngreso, r.horaSalida).toFixed(2), // Display rounded hours
-    { content: '', signature: r.firma }
+    String(r.socioId || ''),
+    r.trabajadorNombre || '',
+    redondearHoraParaPlanilla(r.horaIngreso),
+    redondearHoraParaPlanilla(r.horaSalida),
+    `${getRoundedHours(r.horaIngreso, r.horaSalida).toFixed(2)} hs`,
+    { content: '', signature: r.firma || '' }
   ]);
 
   doc.autoTable({
-    head: [tableColumnTitles],
+    head: [["Nº socio", "Nombre del trabajador", "Hora de entrada", "Hora de salida", "Horas trabajadas", "Firma del trabajador"]],
     body: tableRows,
-    startY: 45,
+    startY: 42,
     theme: 'grid',
-    styles: { fontSize: 9, cellPadding: 1.5, valign: 'middle' },
-    headStyles: { fillColor: [5, 150, 105], textColor: 255, halign: 'center' },
+    styles: { fontSize: 8, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak' },
+    headStyles: { fillColor: [5, 150, 105], textColor: 255, halign: 'center', fontStyle: 'bold' },
     columnStyles: {
-      0: { cellWidth: 20, halign: 'center' },
-      1: { cellWidth: 45 },
-      2: { cellWidth: 20, halign: 'center' },
-      3: { cellWidth: 20, halign: 'center' },
-      4: { cellWidth: 15, halign: 'center' },
-      5: { cellWidth: 45, halign: 'center', minCellHeight: 12 }
+      0: { cellWidth: 16, halign: 'center' },
+      1: { cellWidth: 43 },
+      2: { cellWidth: 22, halign: 'center' },
+      3: { cellWidth: 22, halign: 'center' },
+      4: { cellWidth: 24, halign: 'center' },
+      5: { cellWidth: 43, halign: 'center', minCellHeight: 13 }
     },
-    didDrawCell: function (data) {
+    didDrawCell(data) {
       if (data.column.index === 5 && data.cell.section === 'body' && data.cell.raw.signature) {
-        const signature = data.cell.raw.signature;
-        const imgWidth = 25;
-        const imgHeight = 8;
-        const x = data.cell.x + (data.cell.width - imgWidth) / 2;
-        const y = data.cell.y + (data.cell.height - imgHeight) / 2;
-        doc.addImage(signature, 'PNG', x, y, imgWidth, imgHeight);
+        try {
+          const imgWidth = 28;
+          const imgHeight = 9;
+          const x = data.cell.x + (data.cell.width - imgWidth) / 2;
+          const y = data.cell.y + (data.cell.height - imgHeight) / 2;
+          doc.addImage(data.cell.raw.signature, 'PNG', x, y, imgWidth, imgHeight);
+        } catch (e) { console.error('No se pudo agregar una firma al PDF:', e); }
       }
     },
-    margin: { top: 20 },
-    didDrawPage: function (data) {
+    didDrawPage(data) {
       doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(`Generado el: ${new Date().toLocaleString()}`, 20, doc.internal.pageSize.height - 10);
-      doc.text(`Página ${data.pageNumber}`, doc.internal.pageSize.width - 40, doc.internal.pageSize.height - 10);
-    }
+      doc.setTextColor(120);
+      doc.text(`Fecha de trabajo: ${formatDateString(fechaReporte)}`, 20, doc.internal.pageSize.height - 10);
+      doc.text(`Página ${data.pageNumber}`, doc.internal.pageSize.width - 35, doc.internal.pageSize.height - 10);
+    },
+    margin: { top: 20, bottom: 18 }
   });
 
-  // Añadir firma del responsable al final
-  const finalY = doc.lastAutoTable.finalY + 20;
-  doc.setFontSize(10);
-  doc.setFont(undefined, 'bold');
-  doc.text("__________________________", 150, finalY, { align: 'center' });
-  doc.text(`Firma Responsable: ${responsableDia}`, 150, finalY + 5, { align: 'center' });
-
-  doc.save(`Reporte_Diario_Jornadas_${fechaReporte}.pdf`);
-  showToast("Reporte diario PDF generado con éxito.", "success");
+  doc.save(`Jornada_COVIMT9_${fechaReporte}.pdf`);
+  showToast("PDF de la jornada generado correctamente.", "success");
+  return true;
 }
+
 /**
  * Genera un PDF individual para una jornada finalizada con todos los detalles y firma.
  */
