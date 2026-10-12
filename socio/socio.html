@@ -30,7 +30,7 @@
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
   <!-- Importar Lógica del Socio -->
-  <script src="socio.js?v=20261012-19" defer></script>
+  <script src="socio.js?v=20261012-20" defer></script>
 
   <script>
     tailwind.config = {
@@ -60,6 +60,9 @@
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(4px); }
       to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .safe-pulse { animation: none !important; }
     }
   </style>
 </head>
@@ -208,10 +211,32 @@
             <div class="bg-emerald-50 p-3 sm:p-5 rounded-2xl border border-emerald-100 shadow-sm min-w-0">
               <span class="text-[10px] sm:text-xs font-semibold text-emerald-700 uppercase tracking-wide sm:tracking-wider leading-tight block">Saldo Acumulado</span>
               <h3 id="member-kpi-saldo" class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
+              <p id="member-kpi-saldo-detalle" class="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-tight"></p>
             </div>
             <div class="bg-red-50 p-3 sm:p-5 rounded-2xl border border-red-100 shadow-sm min-w-0">
-              <span class="text-[10px] sm:text-xs font-semibold text-red-700 uppercase tracking-wide sm:tracking-wider leading-tight block">A Tesorería</span>
+              <span class="text-[10px] sm:text-xs font-semibold text-red-700 uppercase tracking-wide sm:tracking-wider leading-tight block">Tesorería actual</span>
               <h3 id="member-kpi-tesoreria" class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
+              <div id="member-kpi-tesoreria-estado" class="mt-2 text-[9px] sm:text-[10px] font-bold leading-tight"></div>
+            </div>
+          </div>
+
+          <div id="member-close-projection" class="mt-4 rounded-2xl border p-4">
+            <div class="flex items-start gap-3">
+              <i id="member-close-projection-icon" data-lucide="alert-triangle" class="w-5 h-5 flex-shrink-0 mt-0.5"></i>
+              <div class="flex-1 min-w-0">
+                <h3 id="member-close-projection-title" class="font-bold text-sm">Proyección al cierre</h3>
+                <p id="member-close-projection-detail" class="text-xs mt-1"></p>
+                <div class="grid grid-cols-2 gap-2 mt-3">
+                  <div class="bg-white/70 rounded-xl p-2.5 border border-slate-200">
+                    <span class="block text-[9px] uppercase tracking-wide font-semibold">A Tesorería</span>
+                    <strong id="member-close-projection-treasury" class="text-base">0 Hs</strong>
+                  </div>
+                  <div class="bg-white/70 rounded-xl p-2.5 border border-slate-200">
+                    <span class="block text-[9px] uppercase tracking-wide font-semibold">A Recuperar</span>
+                    <strong id="member-close-projection-recover" class="text-base">0 Hs</strong>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -329,7 +354,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw-socio.js?v=20261012-19')
+        navigator.serviceWorker.register('sw-socio.js?v=20261012-20')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));
