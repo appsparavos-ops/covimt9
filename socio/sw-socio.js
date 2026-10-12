@@ -3,10 +3,10 @@
 //  Scope: /socio/ (independiente del admin)
 // ============================================================
 
-const CACHE_NAME = 'covimt9-socio-v6-periodo-actual';
+const CACHE_NAME = 'covimt9-socio-v7-app-visible';
 const STATIC_ASSETS = [
   'socio.html',
-  'socio.js',
+  'socio.js?v=20261012-7',
   'manifest-socio.json',
   'firebaseConfig.js',
   'pinos.png',
@@ -76,8 +76,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation: network-first
-  if (event.request.mode === 'navigate') {
+  // HTML y código propio: red primero para publicar cambios inmediatamente.
+  const isOwnAppCode = url.origin === self.location.origin && url.pathname.endsWith('/socio.js');
+  if (event.request.mode === 'navigate' || isOwnAppCode) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {

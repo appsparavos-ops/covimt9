@@ -30,7 +30,7 @@
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
   <!-- Importar Lógica del Socio -->
-  <script src="socio.js" defer></script>
+  <script src="socio.js?v=20261012-7" defer></script>
 
   <script>
     tailwind.config = {
@@ -138,27 +138,62 @@
     <!-- Contenido Principal del Portal -->
     <main class="flex-grow max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 overflow-y-auto">
       <div class="space-y-6">
+        <!-- Selector global de período -->
+        <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                <i data-lucide="calendar-range" class="w-5 h-5 text-brand-600"></i> Período a consultar
+              </h2>
+              <p class="text-xs text-slate-500 mt-1">Seleccioná el mes y el año para navegar por tu información.</p>
+            </div>
+            <div class="grid grid-cols-2 gap-2 w-full sm:w-auto">
+              <div>
+                <label for="member-period-month" class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Mes</label>
+                <select id="member-period-month" onchange="cambiarPeriodoSocio()" class="w-full sm:w-40 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                  <option value="01">Enero</option>
+                  <option value="02">Febrero</option>
+                  <option value="03">Marzo</option>
+                  <option value="04">Abril</option>
+                  <option value="05">Mayo</option>
+                  <option value="06">Junio</option>
+                  <option value="07">Julio</option>
+                  <option value="08">Agosto</option>
+                  <option value="09">Septiembre</option>
+                  <option value="10">Octubre</option>
+                  <option value="11">Noviembre</option>
+                  <option value="12">Diciembre</option>
+                </select>
+              </div>
+              <div>
+                <label for="member-period-year" class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Año</label>
+                <select id="member-period-year" onchange="cambiarPeriodoSocio()" class="w-full sm:w-28 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></select>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Resumen de Horas -->
-        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+        <div class="bg-white p-4 sm:p-6 rounded-2xl border border-slate-100 shadow-sm">
           <h2 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
             <i data-lucide="hourglass" class="w-6 h-6 text-brand-600"></i> Mi Resumen de Horas
           </h2>
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div class="bg-brand-50 p-5 rounded-2xl border border-brand-100 shadow-sm">
-              <span class="text-xs font-semibold text-brand-700 uppercase tracking-wider">Objetivo Mensual</span>
-              <h3 id="member-kpi-objetivo" class="text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+            <div class="bg-brand-50 p-3 sm:p-5 rounded-2xl border border-brand-100 shadow-sm min-w-0">
+              <span class="text-[10px] sm:text-xs font-semibold text-brand-700 uppercase tracking-wide sm:tracking-wider leading-tight block">Objetivo Mensual</span>
+              <h3 id="member-kpi-objetivo" class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
             </div>
-            <div class="bg-blue-50 p-5 rounded-2xl border border-blue-100 shadow-sm">
-              <span class="text-xs font-semibold text-blue-700 uppercase tracking-wider">Horas Realizadas (Mes)</span>
-              <h3 id="member-kpi-realizadas" class="text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
+            <div class="bg-blue-50 p-3 sm:p-5 rounded-2xl border border-blue-100 shadow-sm min-w-0">
+              <span class="text-[10px] sm:text-xs font-semibold text-blue-700 uppercase tracking-wide sm:tracking-wider leading-tight block">Horas Realizadas</span>
+              <h3 id="member-kpi-realizadas" class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
             </div>
-            <div class="bg-emerald-50 p-5 rounded-2xl border border-emerald-100 shadow-sm">
-              <span class="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Saldo Acumulado</span>
-              <h3 id="member-kpi-saldo" class="text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
+            <div class="bg-emerald-50 p-3 sm:p-5 rounded-2xl border border-emerald-100 shadow-sm min-w-0">
+              <span class="text-[10px] sm:text-xs font-semibold text-emerald-700 uppercase tracking-wide sm:tracking-wider leading-tight block">Saldo</span>
+              <h3 id="member-kpi-saldo" class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
             </div>
-            <div class="bg-red-50 p-5 rounded-2xl border border-red-100 shadow-sm">
-              <span class="text-xs font-semibold text-red-700 uppercase tracking-wider">A Tesorería</span>
-              <h3 id="member-kpi-tesoreria" class="text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
+            <div class="bg-red-50 p-3 sm:p-5 rounded-2xl border border-red-100 shadow-sm min-w-0">
+              <span class="text-[10px] sm:text-xs font-semibold text-red-700 uppercase tracking-wide sm:tracking-wider leading-tight block">A Tesorería</span>
+              <h3 id="member-kpi-tesoreria" class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">0.0 hs</h3>
             </div>
           </div>
         </div>
@@ -168,6 +203,7 @@
           <h2 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
             <i data-lucide="history" class="w-6 h-6 text-brand-600"></i> Mi Historial de Jornadas
           </h2>
+          <p id="member-history-period-label" class="text-xs text-slate-500 mb-4 -mt-2"></p>
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-slate-100">
               <thead>
@@ -263,22 +299,12 @@
     // --- Registrar Service Worker ---
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
-        // Limpiar SWs viejos que puedan estar causando conflictos
-        try {
-          const registrations = await navigator.serviceWorker.getRegistrations();
-          for (const reg of registrations) {
-            const swUrl = reg.active?.scriptURL || reg.installing?.scriptURL || '';
-            if (swUrl.includes('sw-socio.js') || (swUrl.includes('sw.js') === false && swUrl.includes('serviceWorker'))) {
-              console.log('[PWA-Socio] Desregistrando SW viejo:', swUrl);
-              await reg.unregister();
-            }
-          }
-        } catch (e) {
-          console.warn('[PWA-Socio] Error limpiando SWs viejos:', e);
-        }
+        // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw-socio.js')
+        navigator.serviceWorker.register('sw-socio.js?v=20261012-7')
           .then((reg) => {
+            if (reg.waiting) reg.waiting.postMessage('skipWaiting');
+            reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));
             console.log('[PWA-Socio] Service Worker registrado:', reg.scope);
             
             // --- Auto-actualización ---
