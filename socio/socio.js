@@ -643,7 +643,12 @@ function renderMemberDashboard() {
     deudaFinal = Math.max(0, deudaFinal - pasajeProyectadoTesoreria);
   }
 
-  document.getElementById('member-kpi-objetivo').textContent = formatHours(objetivo);
+  // Mostrar el compromiso total, igual que Admin: objetivo del período + A Recuperar.
+  document.getElementById('member-kpi-objetivo').textContent = formatHours(comprometidas);
+  const detalleObjetivo = document.getElementById('member-kpi-objetivo-detalle');
+  if (detalleObjetivo) {
+    detalleObjetivo.textContent = `${formatHours(objetivo)} objetivo + ${formatHours(hist.deudaAnterior)} A Recuperar`;
+  }
   document.getElementById('member-kpi-realizadas').textContent = formatHours(resHoras.fisicas);
 
   let saldoDisplay = '';

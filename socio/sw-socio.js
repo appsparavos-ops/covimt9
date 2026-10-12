@@ -3,10 +3,10 @@
 //  Scope: /socio/ (independiente del admin)
 // ============================================================
 
-const CACHE_NAME = 'covimt9-socio-v17-configuracion-pin';
+const CACHE_NAME = 'covimt9-socio-v18-horas-comprometidas';
 const STATIC_ASSETS = [
   'socio.html',
-  'socio.js?v=20261012-17',
+  'socio.js?v=20261012-18',
   'manifest-socio.json',
   'firebaseConfig.js',
   'pinos.png',
