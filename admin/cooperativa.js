@@ -2915,24 +2915,32 @@ function exportReporteTesoreriaPDF() {
   });
 
   const tableData = [];
+  let totalCobradoAntes = 0;
   let totalCobradoMes = 0;
 
   sociosOrdenados.forEach(socio => {
     const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mesNum);
-    const aCobrar = hist.tesoreriaPendiente || 0;
-    if (aCobrar <= 0) return;
-    totalCobradoMes += aCobrar;
+    const aRecuperar = hist.deudaAnterior || 0;
+    const cobradoAntes = hist.tesoreriaAcumulada || 0;
+    const cobradoEsteMes = hist.tesoreriaPendiente || 0;
+    const totalTesoreria = cobradoAntes + cobradoEsteMes;
+
+    // Mostrar tanto socios con Tesorería como quienes conservan horas A Recuperar.
+    if (aRecuperar <= 0 && totalTesoreria <= 0) return;
+    totalCobradoAntes += cobradoAntes;
+    totalCobradoMes += cobradoEsteMes;
     tableData.push([
       socio.id,
       socio.nombre,
-      formatHours(Math.round(hist.deudaAnterior || 0)),
-      formatHours(Math.round(aCobrar)),
-      formatHours(Math.round(obtenerTesoreriaTotal(hist)))
+      formatHours(Math.round(aRecuperar)),
+      formatHours(Math.round(cobradoAntes)),
+      formatHours(Math.round(cobradoEsteMes)),
+      formatHours(Math.round(totalTesoreria))
     ]);
   });
 
   if (tableData.length === 0) {
-    showToast(`No hay horas a cobrar en Tesorería durante ${mesNombre} ${anio}.`, "info");
+    showToast(`No hay movimientos de Tesorería ni horas A Recuperar en ${mesNombre} ${anio}.`, "info");
     return;
   }
 
@@ -2942,34 +2950,37 @@ function exportReporteTesoreriaPDF() {
   }
   doc.setFontSize(16);
   doc.setTextColor(5, 150, 105);
-  doc.text("COVIMT 9 - Informe de Tesorería", 105, 20, { align: 'center' });
+  doc.text("COVIMT 9 - Estado de Tesorería", 105, 20, { align: 'center' });
   doc.setFontSize(12);
   doc.setTextColor(40);
-  doc.text(`Horas que se cobran en ${mesNombre} ${anio}`, 105, 28, { align: 'center' });
+  doc.text(`${mesNombre} ${anio}`, 105, 28, { align: 'center' });
 
   doc.autoTable({
-    head: [['ID', 'Socio Titular', 'A Recuperar', 'A Tesorería este mes', 'Tesorería total']],
+    head: [['ID', 'Socio Titular', 'A Recuperar', 'Cobrado antes', 'Cobrado este mes', 'Tesorería acumulada']],
     body: tableData,
     startY: 35,
     theme: 'grid',
-    styles: { fontSize: 9 },
+    styles: { fontSize: 8.5 },
     headStyles: { fillColor: [5, 150, 105] },
     columnStyles: {
-      0: { cellWidth: 15, halign: 'center' },
+      0: { cellWidth: 13, halign: 'center' },
       2: { halign: 'center' },
-      3: { halign: 'center', fontStyle: 'bold' },
-      4: { halign: 'center', fontStyle: 'bold' }
+      3: { halign: 'center' },
+      4: { halign: 'center', fontStyle: 'bold' },
+      5: { halign: 'center', fontStyle: 'bold' }
     },
     margin: { top: 30 }
   });
 
-  const finalY = doc.lastAutoTable.finalY + 10;
-  doc.setFontSize(10);
+  const finalY = doc.lastAutoTable.finalY + 8;
+  doc.setFontSize(9.5);
   doc.setFont(undefined, 'bold');
-  doc.text(`Total cobrado en Tesorería durante el período: ${formatHours(Math.round(totalCobradoMes))}`, 20, finalY);
+  doc.text(`Total cobrado antes del período: ${formatHours(Math.round(totalCobradoAntes))}`, 20, finalY);
+  doc.text(`Total cobrado durante el período: ${formatHours(Math.round(totalCobradoMes))}`, 20, finalY + 6);
+  doc.text(`Tesorería acumulada total: ${formatHours(Math.round(totalCobradoAntes + totalCobradoMes))}`, 20, finalY + 12);
 
   doc.save(`COVIMT9_Tesoreria_${mesNum}_${anio}.pdf`);
-  showToast("Reporte de Tesorería generado correctamente.", "success");
+  showToast("Estado de Tesorería generado correctamente.", "success");
 }
 
 /**

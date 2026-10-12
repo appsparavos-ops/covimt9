@@ -3,13 +3,13 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v13-tesoreria-pendiente';
+const CACHE_NAME = 'covimt9-v14-reporte-tesoreria-desglosado';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
   'bitacora.html',
   'bitacora.js',
-  'cooperativa.js?v=20261012-13',
+  'cooperativa.js?v=20261012-14',
   'offlineSync.js?v=20261012-11',
   'firebaseConfig.js',
   'pinos.png',
