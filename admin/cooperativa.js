@@ -2031,7 +2031,7 @@ function renderPlanilla() {
       deudaFinal = comprometidas - totalCredito;
       const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
       pasajeProyectadoTesoreria = Math.max(0, hist.deudaAnterior - saldoTrasObjetivo);
-      deudaFinal = Math.max(0, deudaFinal - pasajeProyectadoTesoreria);
+      // El saldo visible conserva toda la deuda pendiente; el pasaje proyectado se aplica al cerrar.
     }
 
     let obs = [];
@@ -2764,7 +2764,7 @@ function exportPlanillaCSV() {
       deudaFinal = comprometidas - totalCredito;
       const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
       pasajeProyectadoTesoreria = Math.max(0, hist.deudaAnterior - saldoTrasObjetivo);
-      deudaFinal = Math.max(0, deudaFinal - pasajeProyectadoTesoreria);
+      // El saldo visible conserva toda la deuda pendiente; el pasaje proyectado se aplica al cerrar.
     }
 
     let obs = [];
@@ -2856,7 +2856,7 @@ function exportPlanillaPDF() {
       const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
       if (saldoTrasMesCorriente < hist.deudaAnterior) {
         pasajeATesoreriaCalculado = hist.deudaAnterior - saldoTrasMesCorriente;
-        deudaFinal = Math.max(0, deudaFinal - pasajeATesoreriaCalculado);
+        // El PDF muestra la deuda pendiente actual completa; el pasaje se concreta al cerrar.
       }
     }
 

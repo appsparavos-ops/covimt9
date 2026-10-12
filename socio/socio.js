@@ -635,12 +635,9 @@ function renderMemberDashboard() {
   } else if (totalCredito >= comprometidas) {
     remanenteFinal = totalCredito - comprometidas;
   } else {
+    // El saldo del período muestra todas las horas comprometidas todavía no cubiertas.
+    // El eventual pasaje de deuda anterior a Tesorería se aplica recién al cerrar el mes.
     deudaFinal = comprometidas - totalCredito;
-    // La deuda anterior no recuperada deja de integrar el saldo y queda marcada
-    // para cobrarse en Tesorería durante el mes siguiente.
-    const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
-    const pasajeProyectadoTesoreria = Math.max(0, hist.deudaAnterior - saldoTrasObjetivo);
-    deudaFinal = Math.max(0, deudaFinal - pasajeProyectadoTesoreria);
   }
 
   // Mostrar el compromiso total, igual que Admin: objetivo del período + A Recuperar.
