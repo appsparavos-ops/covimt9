@@ -29,7 +29,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Asignar manejadores de eventos a los botones para evitar ReferenceError por 'defer'
   document.getElementById('btn-descargar-pdf')?.addEventListener('click', exportPlanillaPDF);
   document.getElementById('btn-reporte-tesoreria')?.addEventListener('click', exportReporteTesoreriaPDF);
-  document.getElementById('btn-generar-reporte-diario-pdf')?.addEventListener('click', generarReporteDiarioPDF);
   document.getElementById('btn-cerrar-mes')?.addEventListener('click', simularCierreMensual);
   document.getElementById('btn-reabrir-mes')?.addEventListener('click', reabrirMes);
   document.getElementById('btn-descargar-csv')?.addEventListener('click', exportPlanillaCSV);
@@ -2813,18 +2812,6 @@ async function generarPDFJornadaSeleccionada() {
   ocultarAlertaReporteJornada();
   const generado = generarReporteJornadaPDF(fechaReporte, true);
   if (generado) closeReporteJornadaModal();
-}
-
-/**
- * Conserva el reporte disponible en Historial y usa el mismo formato de planilla.
- */
-async function generarReporteDiarioPDF() {
-  const fechaReporte = document.getElementById('reporte-jornada-fecha')?.value;
-  if (!fechaReporte) {
-    showToast("Por favor, selecciona una fecha para el reporte.", "error");
-    return;
-  }
-  generarReporteJornadaPDF(fechaReporte, false);
 }
 
 /**
