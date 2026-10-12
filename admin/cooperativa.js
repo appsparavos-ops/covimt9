@@ -1105,11 +1105,26 @@ async function simularCierreMensual() {
 
   try {
     showToast("Calculando arrastres en Firebase...", "info");
+    const periodoEsLicencia = esPeriodoLicencia(anio, mes);
     for (const s of socios) {
       const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
 
       const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
       const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
+
+      // Un mes con objetivo global 0 es licencia: no consume el plazo de
+      // recuperación. Deuda, remanente y Tesorería pasan intactos al mes siguiente.
+      if (periodoEsLicencia) {
+        const claveSiguiente = `${s.id}_${sigAnioStr}-${sigMesStr}`;
+        await db.collection('saldosHistoricos').doc(claveSiguiente).set({
+          deudaAnterior: hist.deudaAnterior || 0,
+          remanenteAnterior: hist.remanenteAnterior || 0,
+          tesoreriaAcumulada: hist.tesoreriaAcumulada || 0,
+          trasladadoPorLicencia: true,
+          periodoOrigen: `${anio}-${mes}`
+        });
+        continue;
+      }
       
       const comprometidas = objetivo + hist.deudaAnterior;
       const totalCredito = resHoras.computables + hist.remanenteAnterior;
@@ -1255,6 +1270,10 @@ function obtenerObjetivoHorasPeriodo(anio, mes) {
 function obtenerObjetivoHorasSocio(socio, anio = periodoAdminAnio, mes = periodoAdminMes) {
   if (esNucleoExonerado(socio)) return 0;
   return obtenerObjetivoHorasPeriodo(anio, mes);
+}
+
+function esPeriodoLicencia(anio, mes) {
+  return obtenerObjetivoHorasPeriodo(anio, mes) === 0;
 }
 
 function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
@@ -1915,21 +1934,28 @@ function renderPlanilla() {
     const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
+    const periodoEsLicencia = esPeriodoLicencia(anio, mes);
     const comprometidas = objetivo + hist.deudaAnterior;
-    const saldoDelMes = resHoras.computables - objetivo;
-    
-    const totalCredito = resHoras.computables + hist.remanenteAnterior;
+    let saldoDelMes = resHoras.computables - objetivo;
+    let totalCredito = resHoras.computables + hist.remanenteAnterior;
 
     let remanenteFinal = 0;
     let deudaFinal = 0;
 
-    if (totalCredito >= comprometidas) {
+    if (periodoEsLicencia) {
+      // El período no consume ni genera saldos: se muestran los heredados intactos.
+      saldoDelMes = 0;
+      totalCredito = hist.remanenteAnterior;
+      remanenteFinal = hist.remanenteAnterior || 0;
+      deudaFinal = hist.deudaAnterior || 0;
+    } else if (totalCredito >= comprometidas) {
       remanenteFinal = totalCredito - comprometidas;
     } else {
       deudaFinal = comprometidas - totalCredito;
     }
 
     let obs = [];
+    if (periodoEsLicencia) obs.push("Mes de licencia: saldos trasladados sin vencimiento");
     if (exonerado) {
       if (s.certificadoMedico) {
         obs.push("Exonerado por certificado médico");
@@ -2636,20 +2662,27 @@ function exportPlanillaCSV() {
     const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
+    const periodoEsLicencia = esPeriodoLicencia(anio, mes);
     const comprometidas = objetivo + hist.deudaAnterior;
-    const saldoDelMes = objetivo - resHoras.computables;
-    const totalCredito = resHoras.computables + hist.remanenteAnterior;
+    let saldoDelMes = objetivo - resHoras.computables;
+    let totalCredito = resHoras.computables + hist.remanenteAnterior;
 
     let remanenteFinal = 0;
     let deudaFinal = 0;
 
-    if (totalCredito >= comprometidas) {
+    if (periodoEsLicencia) {
+      saldoDelMes = 0;
+      totalCredito = hist.remanenteAnterior;
+      remanenteFinal = hist.remanenteAnterior || 0;
+      deudaFinal = hist.deudaAnterior || 0;
+    } else if (totalCredito >= comprometidas) {
       remanenteFinal = totalCredito - comprometidas;
     } else {
       deudaFinal = comprometidas - totalCredito;
     }
 
     let obs = [];
+    if (periodoEsLicencia) obs.push("Mes de licencia: saldos trasladados sin vencimiento");
     if (exonerado) {
       if (s.certificadoMedico) {
         obs.push("Exonerado por certificado médico");
@@ -2721,18 +2754,21 @@ function exportPlanillaPDF() {
 
     let remanenteFinal = 0;
     let deudaFinal = 0;
-    let pasajeATesoreriaCalculado = 0; // Amount of previous debt converted to Tesoreria this month
+    let pasajeATesoreriaCalculado = 0;
+    const periodoEsLicencia = esPeriodoLicencia(anio, mesNum);
 
-    if (totalCredito >= comprometidas) { // If total credit covers all commitments
-      remanenteFinal = totalCredito - comprometidas; // Remaining surplus
-    } else { // If there's a deficit
-      deudaFinal = comprometidas - totalCredito; // New debt for the next month
-
-      // Calculate how much of the previous debt (hist.deudaAnterior) is converted to Tesoreria
+    if (periodoEsLicencia) {
+      remanenteFinal = hist.remanenteAnterior || 0;
+      deudaFinal = hist.deudaAnterior || 0;
+      pasajeATesoreriaCalculado = 0;
+    } else if (totalCredito >= comprometidas) {
+      remanenteFinal = totalCredito - comprometidas;
+    } else {
+      deudaFinal = comprometidas - totalCredito;
       const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
       if (saldoTrasMesCorriente < hist.deudaAnterior) {
         pasajeATesoreriaCalculado = hist.deudaAnterior - saldoTrasMesCorriente;
-        deudaFinal = Math.max(0, deudaFinal - pasajeATesoreriaCalculado); // Reduce next month's debt by what went to Tesoreria
+        deudaFinal = Math.max(0, deudaFinal - pasajeATesoreriaCalculado);
       }
     }
 
@@ -2748,6 +2784,7 @@ function exportPlanillaPDF() {
 
     // Observaciones abreviadas para ahorrar espacio
     let obs = [];
+    if (periodoEsLicencia) obs.push("Mes de licencia: saldos trasladados");
     if (exonerado) obs.push(s.certificadoMedico ? "Exon.Méd." : "Exon.Edad");
     if (!exonerado && comisionAsignada) obs.push(`Com: ${comisionAsignada.split(' ').pop()}`);
 
@@ -2844,6 +2881,11 @@ function exportReporteTesoreriaPDF() {
   const mesNum = document.getElementById('planilla-mes').value;
   const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
   const mesNombre = meses[parseInt(mesNum) - 1];
+
+  if (esPeriodoLicencia(anio, mesNum)) {
+    showToast(`${mesNombre} ${anio} es un mes de licencia: las deudas se trasladan y no pasan a Tesorería.`, "info");
+    return;
+  }
 
   if (socios.length === 0) {
     showToast("No hay socios para exportar.", "info");

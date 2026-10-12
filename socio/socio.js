@@ -141,6 +141,10 @@ function obtenerObjetivoHorasSocio(socio, anio = memberPeriodoAnio, mes = member
   return obtenerObjetivoHorasPeriodoSocio(anio, mes);
 }
 
+function esPeriodoLicenciaSocio(anio, mes) {
+  return obtenerObjetivoHorasPeriodoSocio(anio, mes) === 0;
+}
+
 function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
   const horasFisicas = memberRegistros
     .filter(r => r.socioId === socioId && r.estado === 'finalizado')
@@ -549,10 +553,12 @@ function renderMemberDashboard() {
   let remanenteFinal = 0;
   let deudaFinal = 0;
 
-  // Misma fórmula utilizada por la Planilla Mensual de Admin.
-  // Firebase aporta deuda/remanente anteriores y las jornadas; el saldo se calcula
-  // para el período seleccionado sin descontar nuevamente el pasaje a Tesorería.
-  if (totalCredito >= comprometidas) {
+  // Un objetivo global 0 identifica un mes de licencia. Ese período no consume
+  // el plazo de recuperación: muestra exactamente la deuda/remanente heredados.
+  if (esPeriodoLicenciaSocio(anio, mes)) {
+    remanenteFinal = hist.remanenteAnterior || 0;
+    deudaFinal = hist.deudaAnterior || 0;
+  } else if (totalCredito >= comprometidas) {
     remanenteFinal = totalCredito - comprometidas;
   } else {
     deudaFinal = comprometidas - totalCredito;
