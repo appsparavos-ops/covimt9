@@ -3,7 +3,7 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v4-local-vendor';
+const CACHE_NAME = 'covimt9-v6-firma-responsable';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',

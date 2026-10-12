@@ -682,17 +682,23 @@ async function submitEgresoWithSignature() {
       return;
     }
 
-    if (isCanvasBlank()) {
-      showToast("Es obligatorio firmar.", "error");
+    if (isCanvasBlank(signatureCanvas)) {
+      showToast("La firma del trabajador es obligatoria.", "error");
+      return;
+    }
+    if (isCanvasBlank(responsableSignatureCanvas)) {
+      showToast("La firma del responsable (capataz/delegado) es obligatoria.", "error");
       return;
     }
     const firma = signatureCanvas.toDataURL();
+    const firmaResponsable = responsableSignatureCanvas.toDataURL();
 
     try {
       const egresoData = {
         horaSalida,
         horasTrabajadas: calculated,
         firma,
+        firmaResponsable,
         estado: 'finalizado'
       };
 
@@ -1569,9 +1575,9 @@ function renderJornadasActivas() {
   lucide.createIcons();
 }
 
-// --- CANVAS DE FIRMA ---
+// --- CANVAS DE FIRMAS ---
 let signatureCanvas, signatureCtx;
-let canvasDrawing = false;
+let responsableSignatureCanvas, responsableSignatureCtx;
 
 function openEgresoModal(registroId) {
   const reg = registros.find(r => r.id === registroId);
@@ -1579,6 +1585,7 @@ function openEgresoModal(registroId) {
 
   document.getElementById('egreso-registro-id').value = registroId;
   document.getElementById('lbl-egreso-trabajador').textContent = reg.trabajadorNombre;
+  document.getElementById('lbl-egreso-responsable').textContent = reg.responsable || 'Sin nombre registrado';
   
   const ahora = new Date();
   const hh = String(ahora.getHours()).padStart(2, '0');
@@ -1595,15 +1602,11 @@ function getRoundedHours(horaIngreso, horaSalida) {
   if (calculated <= 0) return 0;
 
   const minutosTrabajados = calculated * 60;
-
-  // Si el tiempo trabajado es inferior a 1:45 (105 min), computa 0 hs
   if (minutosTrabajados < 105) return 0;
 
   if (minutosTrabajados >= 210 && minutosTrabajados <= 255) {
-    // Caso ~4hs: Desde 3h 30m hasta 4h 15m -> Redondea a 4.0 hs
     return 4.0;
   } else if (minutosTrabajados >= 105 && minutosTrabajados < 210) {
-    // Caso ~2hs: Desde 1h 45m hasta 3h 30m -> Redondea a 2.0 hs
     return 2.0;
   }
   return calculated;
@@ -1614,7 +1617,6 @@ function updateRoundedHoursDisplay() {
   const horaSalida = document.getElementById('egreso-hora').value;
   const reg = registros.find(r => r.id === id);
   const lbl = document.getElementById('lbl-egreso-horas-calculadas');
-  
   if (reg && horaSalida && lbl) {
     const rounded = getRoundedHours(reg.horaIngreso, horaSalida);
     lbl.textContent = `${rounded.toFixed(2)} hs`;
@@ -1627,72 +1629,89 @@ function closeEgresoModal() {
 
 function setupSignatureCanvas() {
   signatureCanvas = document.getElementById('signature-canvas');
-  signatureCtx = signatureCanvas.getContext('2d');
+  responsableSignatureCanvas = document.getElementById('responsable-signature-canvas');
+  signatureCtx = prepararCanvasFirma(signatureCanvas);
+  responsableSignatureCtx = prepararCanvasFirma(responsableSignatureCanvas);
+}
 
-  const rect = signatureCanvas.getBoundingClientRect();
-  signatureCanvas.width = rect.width;
-  signatureCanvas.height = rect.height;
+function prepararCanvasFirma(canvas) {
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(1, Math.round(rect.width));
+  canvas.height = Math.max(1, Math.round(rect.height));
+  const ctx = canvas.getContext('2d');
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  limpiarCanvasFirma(canvas);
 
-  signatureCtx.strokeStyle = '#0f172a';
-  signatureCtx.lineWidth = 3;
-  signatureCtx.lineCap = 'round';
-  signatureCtx.lineJoin = 'round';
+  if (canvas.dataset.firmaEventos === 'true') return ctx;
+  canvas.dataset.firmaEventos = 'true';
+  let dibujando = false;
 
-  clearCanvas();
+  const posicionMouse = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const posicionTouch = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    return { x: t.clientX - r.left, y: t.clientY - r.top };
+  };
+  const iniciar = (pos) => {
+    dibujando = true;
+    const contexto = canvas.getContext('2d');
+    contexto.beginPath();
+    contexto.moveTo(pos.x, pos.y);
+  };
+  const continuar = (pos) => {
+    if (!dibujando) return;
+    const contexto = canvas.getContext('2d');
+    contexto.lineTo(pos.x, pos.y);
+    contexto.stroke();
+  };
 
-  signatureCanvas.addEventListener('mousedown', (e) => {
-    canvasDrawing = true;
-    const pos = getCanvasPos(e);
-    signatureCtx.beginPath();
-    signatureCtx.moveTo(pos.x, pos.y);
-  });
-  signatureCanvas.addEventListener('mousemove', (e) => {
-    if (!canvasDrawing) return;
-    const pos = getCanvasPos(e);
-    signatureCtx.lineTo(pos.x, pos.y);
-    signatureCtx.stroke();
-  });
-  signatureCanvas.addEventListener('mouseup', () => canvasDrawing = false);
-  signatureCanvas.addEventListener('mouseleave', () => canvasDrawing = false);
-
-  signatureCanvas.addEventListener('touchstart', (e) => {
+  canvas.addEventListener('mousedown', (e) => iniciar(posicionMouse(e)));
+  canvas.addEventListener('mousemove', (e) => continuar(posicionMouse(e)));
+  canvas.addEventListener('mouseup', () => { dibujando = false; });
+  canvas.addEventListener('mouseleave', () => { dibujando = false; });
+  canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    canvasDrawing = true;
-    const pos = getCanvasTouchPos(e);
-    signatureCtx.beginPath();
-    signatureCtx.moveTo(pos.x, pos.y);
+    iniciar(posicionTouch(e));
   }, { passive: false });
-  signatureCanvas.addEventListener('touchmove', (e) => {
+  canvas.addEventListener('touchmove', (e) => {
     e.preventDefault();
-    if (!canvasDrawing) return;
-    const pos = getCanvasTouchPos(e);
-    signatureCtx.lineTo(pos.x, pos.y);
-    signatureCtx.stroke();
+    continuar(posicionTouch(e));
   }, { passive: false });
-  signatureCanvas.addEventListener('touchend', () => canvasDrawing = false);
+  canvas.addEventListener('touchend', () => { dibujando = false; });
+  return ctx;
 }
 
-function getCanvasPos(e) {
-  const rect = signatureCanvas.getBoundingClientRect();
-  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+function limpiarCanvasFirma(canvas) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
-function getCanvasTouchPos(e) {
-  const rect = signatureCanvas.getBoundingClientRect();
-  const t = e.touches[0];
-  return { x: t.clientX - rect.left, y: t.clientY - rect.top };
-}
+
 function clearCanvas() {
-  signatureCtx.fillStyle = '#ffffff';
-  signatureCtx.fillRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+  limpiarCanvasFirma(signatureCanvas);
 }
-function isCanvasBlank() {
+
+function clearResponsableCanvas() {
+  limpiarCanvasFirma(responsableSignatureCanvas);
+}
+
+function isCanvasBlank(canvas) {
+  if (!canvas) return true;
   const blank = document.createElement('canvas');
-  blank.width = signatureCanvas.width;
-  blank.height = signatureCanvas.height;
+  blank.width = canvas.width;
+  blank.height = canvas.height;
   const bCtx = blank.getContext('2d');
   bCtx.fillStyle = '#ffffff';
   bCtx.fillRect(0, 0, blank.width, blank.height);
-  return signatureCanvas.toDataURL() === blank.toDataURL();
+  return canvas.toDataURL() === blank.toDataURL();
 }
 
 // --- PLANILLA DE CÁLCULO ---
@@ -2895,6 +2914,57 @@ function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
       doc.text(`Página ${data.pageNumber}`, doc.internal.pageSize.width - 35, doc.internal.pageSize.height - 10);
     },
     margin: { top: 20, bottom: 18 }
+  });
+
+  // Firmas de los responsables al final de la nómina de trabajadores.
+  // Si hubo más de un responsable en la fecha, se incluye una firma por cada uno.
+  const responsables = [];
+  jornadasDelDia.forEach(r => {
+    const nombre = (r.responsable || 'Responsable sin nombre').trim();
+    const existente = responsables.find(item => item.nombre.toLocaleLowerCase() === nombre.toLocaleLowerCase());
+    if (!existente) {
+      responsables.push({ nombre, firma: r.firmaResponsable || '' });
+    } else if (!existente.firma && r.firmaResponsable) {
+      existente.firma = r.firmaResponsable;
+    }
+  });
+
+  let firmaY = doc.lastAutoTable.finalY + 12;
+  const altoBloqueResponsable = 30;
+  const limitePagina = doc.internal.pageSize.height - 18;
+
+  doc.setTextColor(40, 40, 40);
+  doc.setFontSize(11);
+  doc.setFont(undefined, 'bold');
+  if (firmaY + 10 > limitePagina) {
+    doc.addPage();
+    firmaY = 20;
+  }
+  doc.text('Responsable(s) de la jornada', 20, firmaY);
+  firmaY += 8;
+
+  responsables.forEach(responsable => {
+    if (firmaY + altoBloqueResponsable > limitePagina) {
+      doc.addPage();
+      firmaY = 20;
+    }
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'bold');
+    doc.text(`Nombre: ${responsable.nombre}`, 25, firmaY + 5);
+    doc.setFont(undefined, 'normal');
+    doc.text('Firma:', 25, firmaY + 13);
+    if (responsable.firma) {
+      try {
+        doc.addImage(responsable.firma, 'PNG', 48, firmaY + 1, 48, 18);
+      } catch (e) {
+        console.error('No se pudo agregar la firma del responsable al PDF:', e);
+        doc.line(48, firmaY + 17, 98, firmaY + 17);
+      }
+    } else {
+      // Compatibilidad visual con jornadas históricas previas a esta mejora.
+      doc.line(48, firmaY + 17, 98, firmaY + 17);
+    }
+    firmaY += altoBloqueResponsable;
   });
 
   doc.save(`Jornada_COVIMT9_${fechaReporte}.pdf`);
