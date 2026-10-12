@@ -651,6 +651,9 @@ async function submitEgresoWithSignature() {
 
   const reg = registros.find(r => r.id === id);
   if (reg) {
+    const esUltimaSalidaDeLaFecha = !registros.some(r =>
+      r.id !== id && r.fecha === reg.fecha && r.estado === 'activo'
+    );
     const calculated = getRoundedHours(reg.horaIngreso, horaSalida);
     
     if (calculated === 0) {
@@ -686,19 +689,13 @@ async function submitEgresoWithSignature() {
       showToast("La firma del trabajador es obligatoria.", "error");
       return;
     }
-    if (isCanvasBlank(responsableSignatureCanvas)) {
-      showToast("La firma del responsable (capataz/delegado) es obligatoria.", "error");
-      return;
-    }
     const firma = signatureCanvas.toDataURL();
-    const firmaResponsable = responsableSignatureCanvas.toDataURL();
 
     try {
       const egresoData = {
         horaSalida,
         horasTrabajadas: calculated,
         firma,
-        firmaResponsable,
         estado: 'finalizado'
       };
 
@@ -716,6 +713,7 @@ async function submitEgresoWithSignature() {
         showToast(`Egreso guardado offline: ${calculated} hs. Se sincronizará al tener conexión.`, "info");
         registrarLog("Egreso (Offline)", `EGRESO OFFLINE: ${reg.trabajadorNombre}. ${calculated} hs. Pendiente de sincronización.`);
         closeEgresoModal();
+        if (esUltimaSalidaDeLaFecha) openFirmaResponsableModal(id, { ...reg, ...egresoData });
         return;
       }
 
@@ -723,6 +721,7 @@ async function submitEgresoWithSignature() {
       showToast(`Egreso registrado: ${calculated} hs guardadas.`, "success");
       registrarLog("Egreso Jornada", `FIN - Trabajador: ${reg.trabajadorNombre} (Socio: ${reg.socioId}). Salida: ${horaSalida}hs. Total computado: ${calculated} hs.`);
       closeEgresoModal();
+      if (esUltimaSalidaDeLaFecha) openFirmaResponsableModal(id, { ...reg, ...egresoData });
     } catch (err) {
       showToast("Error al registrar egreso: " + err.message, "error");
     }
@@ -1585,7 +1584,6 @@ function openEgresoModal(registroId) {
 
   document.getElementById('egreso-registro-id').value = registroId;
   document.getElementById('lbl-egreso-trabajador').textContent = reg.trabajadorNombre;
-  document.getElementById('lbl-egreso-responsable').textContent = reg.responsable || 'Sin nombre registrado';
   
   const ahora = new Date();
   const hh = String(ahora.getHours()).padStart(2, '0');
@@ -1629,9 +1627,7 @@ function closeEgresoModal() {
 
 function setupSignatureCanvas() {
   signatureCanvas = document.getElementById('signature-canvas');
-  responsableSignatureCanvas = document.getElementById('responsable-signature-canvas');
   signatureCtx = prepararCanvasFirma(signatureCanvas);
-  responsableSignatureCtx = prepararCanvasFirma(responsableSignatureCanvas);
 }
 
 function prepararCanvasFirma(canvas) {
@@ -1697,6 +1693,46 @@ function limpiarCanvasFirma(canvas) {
 
 function clearCanvas() {
   limpiarCanvasFirma(signatureCanvas);
+}
+
+function openFirmaResponsableModal(registroId, registroData = null) {
+  const reg = registroData || registros.find(r => r.id === registroId);
+  if (!reg) return;
+  document.getElementById('firma-responsable-registro-id').value = registroId;
+  document.getElementById('lbl-firma-responsable-fecha').textContent = formatDateString(reg.fecha);
+  document.getElementById('lbl-firma-responsable-nombre').textContent = reg.responsable || 'Sin nombre registrado';
+  document.getElementById('modal-firma-responsable').classList.remove('hidden');
+  responsableSignatureCanvas = document.getElementById('responsable-signature-canvas');
+  responsableSignatureCtx = prepararCanvasFirma(responsableSignatureCanvas);
+  lucide.createIcons();
+}
+
+async function submitFirmaResponsableJornada() {
+  const id = document.getElementById('firma-responsable-registro-id').value;
+  if (isCanvasBlank(responsableSignatureCanvas)) {
+    showToast('La firma del responsable (capataz/delegado) es obligatoria.', 'error');
+    return;
+  }
+  const firmaResponsable = responsableSignatureCanvas.toDataURL();
+  const data = { firmaResponsable };
+  try {
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('registros', id, 'merge', data);
+      const idx = registros.findIndex(r => r.id === id);
+      if (idx >= 0) registros[idx] = { ...registros[idx], ...data };
+      showToast('Firma del responsable guardada offline. Se sincronizará al tener conexión.', 'info');
+    } else {
+      await db.collection('registros').doc(id).set(data, { merge: true });
+      const idx = registros.findIndex(r => r.id === id);
+      if (idx >= 0) registros[idx] = { ...registros[idx], ...data };
+      showToast('Jornada cerrada con la firma del responsable.', 'success');
+    }
+    registrarLog('Cierre de Jornada', `Firma del responsable registrada para la jornada ${id}.`);
+    document.getElementById('modal-firma-responsable').classList.add('hidden');
+    renderHistorialTable();
+  } catch (err) {
+    showToast('Error al guardar la firma del responsable: ' + err.message, 'error');
+  }
 }
 
 function clearResponsableCanvas() {
@@ -2919,15 +2955,19 @@ function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
   // Firmas de los responsables al final de la nómina de trabajadores.
   // Si hubo más de un responsable en la fecha, se incluye una firma por cada uno.
   const responsables = [];
-  jornadasDelDia.forEach(r => {
+  jornadasDelDia.filter(r => r.firmaResponsable).forEach(r => {
     const nombre = (r.responsable || 'Responsable sin nombre').trim();
     const existente = responsables.find(item => item.nombre.toLocaleLowerCase() === nombre.toLocaleLowerCase());
-    if (!existente) {
-      responsables.push({ nombre, firma: r.firmaResponsable || '' });
-    } else if (!existente.firma && r.firmaResponsable) {
-      existente.firma = r.firmaResponsable;
-    }
+    if (!existente) responsables.push({ nombre, firma: r.firmaResponsable });
   });
+  // Compatibilidad con jornadas antiguas que todavía no poseen firma del responsable.
+  if (responsables.length === 0) {
+    const ultimoRegistro = jornadasDelDia[jornadasDelDia.length - 1];
+    responsables.push({
+      nombre: (ultimoRegistro.responsable || 'Responsable sin nombre').trim(),
+      firma: ''
+    });
+  }
 
   let firmaY = doc.lastAutoTable.finalY + 12;
   const altoBloqueResponsable = 30;

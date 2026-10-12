@@ -699,26 +699,51 @@
               </button>
             </div>
           </div>
-
-          <div class="space-y-2 pt-3 border-t border-slate-200">
-            <div>
-              <p class="text-sm font-semibold text-slate-700">Firma del responsable (capataz/delegado)</p>
-              <p class="text-xs text-slate-500">Responsable registrado: <strong id="lbl-egreso-responsable" class="text-slate-700">-</strong></p>
-            </div>
-            <div class="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-              <canvas id="responsable-signature-canvas" width="450" height="150" class="w-full block"></canvas>
-            </div>
-            <div class="flex justify-between items-center text-xs text-slate-400">
-              <span>Firma digital del responsable</span>
-              <button type="button" onclick="clearResponsableCanvas()" class="text-brand-600 hover:text-brand-800 font-semibold flex items-center gap-1">
-                <i data-lucide="refresh-cw" class="w-3 h-3"></i> Limpiar
-              </button>
-            </div>
-          </div>
         </div>
         <div class="bg-slate-50 px-6 py-4 flex justify-end gap-3">
           <button onclick="closeEgresoModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
           <button onclick="submitEgresoWithSignature()" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition">Finalizar Jornada</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de firma final del responsable de la jornada -->
+    <div id="modal-firma-responsable" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-firma-responsable">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100">
+        <div class="bg-brand-700 text-white p-4">
+          <h3 id="titulo-firma-responsable" class="font-bold flex items-center gap-2">
+            <i data-lucide="badge-check" class="w-5 h-5 text-emerald-300"></i> Cierre de la jornada
+          </h3>
+        </div>
+        <div class="p-6 space-y-4">
+          <input type="hidden" id="firma-responsable-registro-id">
+          <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-900">
+            Se registró la salida del último trabajador. Para cerrar la jornada debe firmar el responsable (capataz/delegado).
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div class="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+              <span class="block text-xs text-slate-500">Fecha</span>
+              <strong id="lbl-firma-responsable-fecha">-</strong>
+            </div>
+            <div class="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+              <span class="block text-xs text-slate-500">Responsable</span>
+              <strong id="lbl-firma-responsable-nombre">-</strong>
+            </div>
+          </div>
+          <div class="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
+            <canvas id="responsable-signature-canvas" width="450" height="160" class="w-full block"></canvas>
+          </div>
+          <div class="flex justify-between items-center text-xs text-slate-400">
+            <span>Firma digital del responsable</span>
+            <button type="button" onclick="clearResponsableCanvas()" class="text-brand-600 hover:text-brand-800 font-semibold flex items-center gap-1">
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i> Limpiar
+            </button>
+          </div>
+        </div>
+        <div class="bg-slate-50 px-6 py-4 flex justify-end">
+          <button type="button" onclick="submitFirmaResponsableJornada()" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2">
+            <i data-lucide="check" class="w-4 h-4"></i> Firmar y cerrar jornada
+          </button>
         </div>
       </div>
     </div>
