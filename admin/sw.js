@@ -3,10 +3,12 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v3';
+const CACHE_NAME = 'covimt9-v4-local-vendor';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
+  'bitacora.html',
+  'bitacora.js',
   'cooperativa.js',
   'offlineSync.js',
   'firebaseConfig.js',
@@ -16,6 +18,20 @@ const STATIC_ASSETS = [
   'icons/icon-512x512.png',
   'icons/icon-maskable-512x512.png',
   'icons/apple-touch-icon.png',
+  // Librerías locales (sin dependencia de CDN)
+  'vendor/tailwindcss-3.4.17.js',
+  'vendor/lucide-0.468.0.min.js',
+  'vendor/firebase-app-compat-9.22.0.js',
+  'vendor/firebase-auth-compat-9.22.0.js',
+  'vendor/firebase-firestore-compat-9.22.0.js',
+  'vendor/jspdf-2.5.1.umd.min.js',
+  'vendor/jspdf-autotable-3.5.25.min.js',
+  'vendor/fonts/outfit.css',
+  'vendor/fonts/outfit-300.ttf',
+  'vendor/fonts/outfit-400.ttf',
+  'vendor/fonts/outfit-500.ttf',
+  'vendor/fonts/outfit-600.ttf',
+  'vendor/fonts/outfit-700.ttf',
   // Socio App
   'socio.html',
   'socio.js',
@@ -26,15 +42,7 @@ const STATIC_ASSETS = [
   'icons-socio/apple-touch-icon.png'
 ];
 
-// CDN resources (cached on first fetch)
-const CDN_PATTERNS = [
-  'cdn.tailwindcss.com',
-  'unpkg.com/lucide',
-  'gstatic.com/firebasejs',
-  'cdnjs.cloudflare.com/ajax/libs/jspdf',
-  'fonts.googleapis.com',
-  'fonts.gstatic.com'
-];
+// Las librerías se sirven desde vendor/ y se precargan durante la instalación.
 
 // --- INSTALL: Cache static assets ---
 self.addEventListener('install', (event) => {
@@ -89,29 +97,6 @@ self.addEventListener('fetch', (event) => {
       url.hostname.includes('identitytoolkit.googleapis.com') ||
       url.hostname.includes('www.googleapis.com/identitytoolkit')) {
     return; // Let the browser handle these natively
-  }
-
-  // For CDN resources: network-first with cache fallback
-  const isCDN = CDN_PATTERNS.some(pattern => url.href.includes(pattern));
-  
-  if (isCDN) {
-    event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, clone);
-            });
-          }
-          return response;
-        }).catch(() => {
-          return cached || new Response('Offline', { status: 503 });
-        });
-      })
-    );
-    return;
   }
 
   // For static assets: cache-first with network fallback
