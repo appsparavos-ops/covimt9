@@ -33,9 +33,9 @@
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
   <!-- Módulo Offline Sync -->
-  <script src="offlineSync.js"></script>
+  <script src="offlineSync.js?v=20261012-11"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
-  <script src="cooperativa.js?v=20261012-10" defer></script>
+  <script src="cooperativa.js?v=20261012-11" defer></script>
 
   <script>
     tailwind.config = {
@@ -893,8 +893,10 @@
           <!-- Sección Restringida: Aparece solo si Modo Edición está activo -->
           <div id="config-restricted-section" class="hidden space-y-4">
             <div class="border-t border-slate-100 pt-4">
-              <label for="config-objetivo" class="block text-xs font-semibold text-slate-500 mb-1">Horas Mensuales (Socio/Mes)</label>
-              <input type="number" id="config-objetivo" min="1" max="200" required class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+              <label for="config-objetivo" class="block text-xs font-semibold text-slate-500 mb-1">Horas objetivo del período</label>
+              <input type="number" id="config-objetivo" min="0" max="200" required class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+              <p class="text-[11px] text-slate-500 mt-1">Período seleccionado: <strong id="config-objetivo-periodo" class="text-brand-700">-</strong>. Use 0 para meses de licencia.</p>
+              <p class="text-[10px] text-slate-400 mt-1">El cambio se guarda sólo para este mes y no modifica períodos anteriores.</p>
             </div>
 
             <h4 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
@@ -1102,7 +1104,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js?v=20261012-10')
+        navigator.serviceWorker.register('sw.js?v=20261012-11')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));

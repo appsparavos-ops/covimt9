@@ -168,6 +168,7 @@ const OfflineSync = (() => {
         dbRef.collection('socios').get(),
         dbRef.collection('registros').get(),
         dbRef.collection('saldosHistoricos').get(),
+        dbRef.collection('objetivosMensuales').get(),
         dbRef.collection('comisiones').get(),
         dbRef.collection('config').doc('metaGlobal').get(),
       ]);

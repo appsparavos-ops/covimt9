@@ -4,6 +4,7 @@ let memberSocios = []; // Will hold the current member's socio data (as an array
 let memberRegistros = []; // Will hold the current member's jornada records
 let memberConfig = { objetivoHoras: 40 }; // Default config, will be fetched
 let memberSaldosHistoricos = {}; // Will hold the current member's historical balances
+let memberObjetivosMensuales = {}; // Objetivo global por período YYYY-MM
 let currentMemberSocioId = null;
 const memberHoy = new Date();
 let memberPeriodoAnio = String(memberHoy.getFullYear());
@@ -128,9 +129,16 @@ function obtenerComisionAsignadaNucleo(socio) {
   return null;
 }
 
-function obtenerObjetivoHorasSocio(socio) {
+function obtenerObjetivoHorasPeriodoSocio(anio, mes) {
+  const clave = `${anio}-${mes}`;
+  return Object.prototype.hasOwnProperty.call(memberObjetivosMensuales, clave)
+    ? memberObjetivosMensuales[clave]
+    : memberConfig.objetivoHoras;
+}
+
+function obtenerObjetivoHorasSocio(socio, anio = memberPeriodoAnio, mes = memberPeriodoMes) {
   if (esNucleoExonerado(socio)) return 0;
-  return memberConfig.objetivoHoras;
+  return obtenerObjetivoHorasPeriodoSocio(anio, mes);
 }
 
 function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
@@ -155,7 +163,7 @@ function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
 
 function obtenerResultadoHorasSocio(socio, anio, mes) {
   const horasCampo = obtenerHorasRealizadasNucleo(socio.id, anio, mes);
-  const objetivo = obtenerObjetivoHorasSocio(socio);
+  const objetivo = obtenerObjetivoHorasSocio(socio, anio, mes);
   const comisionAsignada = obtenerComisionAsignadaNucleo(socio);
 
   if (objetivo > 0 && comisionAsignada) {
@@ -368,6 +376,7 @@ async function handleMemberLogout() {
     memberSocios = [];
     memberRegistros = [];
     memberSaldosHistoricos = {};
+    memberObjetivosMensuales = {};
     showToast("Sesión cerrada.", "info");
     showMemberLogin();
   }
@@ -399,6 +408,14 @@ async function loadMemberData(socioId) {
     if (configDoc.exists) {
       memberConfig = normalizarConfig(configDoc.data());
     }
+
+    // Fetch global objectives by period. Missing periods use the legacy default.
+    const objetivosSnapshot = await db.collection('objetivosMensuales').get();
+    memberObjetivosMensuales = {};
+    objetivosSnapshot.docs.forEach(doc => {
+      const valor = Number(doc.data().objetivoHoras);
+      if (Number.isFinite(valor) && valor >= 0) memberObjetivosMensuales[doc.id] = valor;
+    });
 
     // Fetch member's records
     const registrosSnapshot = await db.collection('registros').where('socioId', '==', socioId).get();
@@ -522,7 +539,7 @@ function renderMemberDashboard() {
   const anio = memberPeriodoAnio;
   const mes = memberPeriodoMes;
 
-  const objetivo = obtenerObjetivoHorasSocio(socio);
+  const objetivo = obtenerObjetivoHorasSocio(socio, anio, mes);
   const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
   const resHoras = obtenerResultadoHorasSocio(socio, anio, mes);
 

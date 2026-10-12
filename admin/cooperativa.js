@@ -4,6 +4,7 @@ let socios = [];
 let registros = [];
 let config = { objetivoHoras: 40 };
 let saldosHistoricos = {};
+let objetivosMensuales = {}; // Objetivo global por período YYYY-MM
 let modoEdicion = false; // Variable para controlar el modo edición
 const fechaDispositivoAdmin = new Date();
 let periodoAdminAnio = String(fechaDispositivoAdmin.getFullYear());
@@ -210,7 +211,21 @@ function startFirestoreSync() {
     renderPlanilla();
   });
 
-  // 4. Escuchar Saldos e Históricos del Cierre mensual
+  // 4. Escuchar objetivos mensuales globales (un documento por YYYY-MM)
+  db.collection('objetivosMensuales').onSnapshot((snapshot) => {
+    objetivosMensuales = {};
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const valor = Number(data.objetivoHoras);
+      if (Number.isFinite(valor) && valor >= 0) objetivosMensuales[doc.id] = valor;
+    });
+    renderDashboard();
+    renderPlanilla();
+  }, (error) => {
+    showToast("Error al sincronizar objetivos mensuales: " + error.message, "error");
+  });
+
+  // 5. Escuchar Saldos e Históricos del Cierre mensual
   db.collection('saldosHistoricos').onSnapshot((snapshot) => {
     saldosHistoricos = {};
     snapshot.docs.forEach(doc => {
@@ -221,7 +236,7 @@ function startFirestoreSync() {
     renderDashboard();
   });
 
-  // 5. Escuchar Comisiones
+  // 6. Escuchar Comisiones
   db.collection('comisiones').onSnapshot((snapshot) => {
     const firebaseComisiones = snapshot.docs.map(doc => doc.data().nombre);
     COMISIONES_VALIDAS = ["Ninguna", ...firebaseComisiones].sort(); // "Ninguna" siempre primero, luego alfabético
@@ -760,46 +775,58 @@ async function deleteRecord(recordId) {
 }
 
 async function saveConfig() {
-  const obj = parseInt(document.getElementById('config-objetivo').value);
-  if (obj > 0) {
-    try {
-      const configData = normalizarConfig({ objetivoHoras: obj });
-      
-      // Guardar modo edición
-      const toggleEl = document.getElementById('config-modo-edicion');
-      const nuevoModo = toggleEl ? toggleEl.checked : modoEdicion;
+  const obj = Number(document.getElementById('config-objetivo').value);
+  if (!Number.isFinite(obj) || obj < 0 || obj > 200) {
+    showToast('Las horas objetivo deben ser un valor entre 0 y 200.', 'error');
+    return;
+  }
 
-      // Si se intenta HABILITAR, validar la clave
-      if (nuevoModo && !modoEdicion) {
-        const clave = (document.getElementById('clave-modo-edicion')?.value || '').trim();
-        if (clave !== 'admin') {
-          showToast('Clave incorrecta. No se habilitó el Modo Edición.', 'error');
-          if (toggleEl) toggleEl.checked = false;
-          document.getElementById('campo-clave-edicion')?.classList.add('hidden');
-          if (document.getElementById('clave-modo-edicion')) document.getElementById('clave-modo-edicion').value = '';
-          return;
-        }
-      }
+  try {
+    const toggleEl = document.getElementById('config-modo-edicion');
+    const nuevoModo = toggleEl ? toggleEl.checked : modoEdicion;
 
-      modoEdicion = nuevoModo;
-      applyModoEdicion();
-
-      if (!navigator.onLine) {
-        OfflineSync.enqueue('config', 'metaGlobal', 'set', configData);
-        config = configData;
-        renderDashboard();
-        renderPlanilla();
-        showToast("Configuración guardada offline. Se sincronizará al tener conexión.", "info");
-        registrarLog("Configuración (Offline)", `Meta: ${obj} hs. Modo Edición: ${modoEdicion}. Pendiente de sincronización.`);
+    if (nuevoModo && !modoEdicion) {
+      const clave = (document.getElementById('clave-modo-edicion')?.value || '').trim();
+      if (clave !== 'admin') {
+        showToast('Clave incorrecta. No se habilitó el Modo Edición.', 'error');
+        if (toggleEl) toggleEl.checked = false;
+        document.getElementById('campo-clave-edicion')?.classList.add('hidden');
+        if (document.getElementById('clave-modo-edicion')) document.getElementById('clave-modo-edicion').value = '';
         return;
       }
-
-      await db.collection('config').doc('metaGlobal').set(configData);
-      registrarLog("Acceso Administrador", `Meta: ${obj} hs. Modo Edición: ${modoEdicion}.`);
-      showToast(modoEdicion ? 'Configuración guardada. Modo Edición activado.' : 'Configuración guardada. Modo Edición desactivado.', 'success');
-    } catch (err) {
-      showToast('Error al guardar configuración: ' + err.message, 'error');
     }
+
+    modoEdicion = nuevoModo;
+    applyModoEdicion();
+
+    const periodo = `${periodoAdminAnio}-${periodoAdminMes}`;
+    const objetivoData = {
+      objetivoHoras: obj,
+      anio: periodoAdminAnio,
+      mes: periodoAdminMes,
+      actualizadoEn: new Date().toISOString()
+    };
+
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('objetivosMensuales', periodo, 'set', objetivoData);
+      objetivosMensuales[periodo] = obj;
+      renderDashboard();
+      renderPlanilla();
+      showToast(`Objetivo de ${MESES_ADMIN[Number(periodoAdminMes)]} ${periodoAdminAnio} guardado offline.`, 'info');
+      registrarLog('Configuración (Offline)', `Objetivo ${periodo}: ${obj} hs. Modo Edición: ${modoEdicion}. Pendiente de sincronización.`);
+      closeConfigModal();
+      return;
+    }
+
+    await db.collection('objetivosMensuales').doc(periodo).set(objetivoData);
+    objetivosMensuales[periodo] = obj;
+    registrarLog('Objetivo Mensual', `Período ${periodo}: ${obj} hs. Modo Edición: ${modoEdicion}.`);
+    showToast(`Objetivo guardado para ${MESES_ADMIN[Number(periodoAdminMes)]} ${periodoAdminAnio}: ${obj} hs.`, 'success');
+    renderDashboard();
+    renderPlanilla();
+    closeConfigModal();
+  } catch (err) {
+    showToast('Error al guardar configuración: ' + err.message, 'error');
   }
 }
 
@@ -1079,7 +1106,7 @@ async function simularCierreMensual() {
   try {
     showToast("Calculando arrastres en Firebase...", "info");
     for (const s of socios) {
-      const objetivo = obtenerObjetivoHorasSocio(s);
+      const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
 
       const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
       const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
@@ -1218,9 +1245,16 @@ function obtenerComisionAsignadaNucleo(socio) {
   return null;
 }
 
-function obtenerObjetivoHorasSocio(socio) {
+function obtenerObjetivoHorasPeriodo(anio, mes) {
+  const clave = `${anio}-${mes}`;
+  return Object.prototype.hasOwnProperty.call(objetivosMensuales, clave)
+    ? objetivosMensuales[clave]
+    : config.objetivoHoras;
+}
+
+function obtenerObjetivoHorasSocio(socio, anio = periodoAdminAnio, mes = periodoAdminMes) {
   if (esNucleoExonerado(socio)) return 0;
-  return config.objetivoHoras;
+  return obtenerObjetivoHorasPeriodo(anio, mes);
 }
 
 function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
@@ -1247,7 +1281,7 @@ function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
 
 function obtenerResultadoHorasSocio(socio, anio, mes) {
   const horasCampo = obtenerHorasRealizadasNucleo(socio.id, anio, mes);
-  const objetivo = obtenerObjetivoHorasSocio(socio);
+  const objetivo = obtenerObjetivoHorasSocio(socio, anio, mes);
   const comisionAsignada = obtenerComisionAsignadaNucleo(socio);
 
   if (objetivo > 0 && comisionAsignada) {
@@ -1876,7 +1910,7 @@ function renderPlanilla() {
     if (!s) return;
 
     const exonerado = esNucleoExonerado(s);
-    const objetivo = obtenerObjetivoHorasSocio(s);
+    const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
     const comisionAsignada = obtenerComisionAsignadaNucleo(s);
     const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
@@ -2138,10 +2172,9 @@ function renderDashboard() {
   const lblGoal = document.getElementById('lbl-goal-hours');
   if (!lblGoal) return;
   
-  lblGoal.textContent = config.objetivoHoras;
-
   const anio = periodoAdminAnio;
   const mes = periodoAdminMes;
+  lblGoal.textContent = obtenerObjetivoHorasPeriodo(anio, mes);
   sincronizarSelectoresPeriodoAdmin();
 
   const periodEl = document.getElementById('kpi-hours-period');
@@ -2266,7 +2299,9 @@ function openNucleoModal(socioId, index = null) {
 
 function openConfigModal() {
   const input = document.getElementById('config-objetivo');
-  if (input) input.value = config.objetivoHoras;
+  if (input) input.value = obtenerObjetivoHorasPeriodo(periodoAdminAnio, periodoAdminMes);
+  const periodoLabel = document.getElementById('config-objetivo-periodo');
+  if (periodoLabel) periodoLabel.textContent = `${MESES_ADMIN[Number(periodoAdminMes)]} ${periodoAdminAnio}`;
   const toggleEl = document.getElementById('config-modo-edicion');
   if (toggleEl) toggleEl.checked = modoEdicion;
   // Siempre ocultar el campo de clave al abrir el modal
@@ -2596,7 +2631,7 @@ function exportPlanillaCSV() {
     const edad = hoy.getFullYear() - fechaNac.getFullYear() - (hoy.getMonth() < fechaNac.getMonth() || (hoy.getMonth() === fechaNac.getMonth() && hoy.getDate() < fechaNac.getDate()) ? 1 : 0);
     
     const exonerado = esNucleoExonerado(s);
-    const objetivo = obtenerObjetivoHorasSocio(s);
+    const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
     const comisionAsignada = obtenerComisionAsignadaNucleo(s);
     const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
@@ -2673,7 +2708,7 @@ function exportPlanillaPDF() {
   });
 
   const tableData = sociosOrdenados.map(s => {
-    const objetivo = obtenerObjetivoHorasSocio(s);
+    const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
     const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
     const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
     const comisionAsignada = obtenerComisionAsignadaNucleo(s);
@@ -2826,7 +2861,7 @@ function exportReporteTesoreriaPDF() {
   let totalGeneralTesoreria = 0;
 
   sociosOrdenados.forEach(s => {
-    const objetivo = obtenerObjetivoHorasSocio(s);
+    const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
     const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
     const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
     
