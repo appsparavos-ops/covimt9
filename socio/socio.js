@@ -189,10 +189,14 @@ function obtenerResultadoHorasSocio(socio, anio, mes) {
 
 function obtenerSaldoHistoricoAlMes(socioId, anio, mes) {
   const clave = `${socioId}_${anio}-${mes}`;
-  if (memberSaldosHistoricos[clave]) {
-    return memberSaldosHistoricos[clave];
-  }
-  return { deudaAnterior: 0, remanenteAnterior: 0, tesoreriaAcumulada: 0 };
+  const data = memberSaldosHistoricos[clave] || {};
+  return {
+    ...data,
+    deudaAnterior: Number(data.deudaAnterior) || 0,
+    remanenteAnterior: Number(data.remanenteAnterior) || 0,
+    tesoreriaAcumulada: Number(data.tesoreriaAcumulada) || 0,
+    tesoreriaPendiente: Number(data.tesoreriaPendiente) || 0
+  };
 }
 
 function formatDateString(str) {
@@ -553,8 +557,8 @@ function renderMemberDashboard() {
   let remanenteFinal = 0;
   let deudaFinal = 0;
 
-  // Un objetivo global 0 identifica un mes de licencia. Ese período no consume
-  // el plazo de recuperación: muestra exactamente la deuda/remanente heredados.
+  // En licencia se pausa únicamente "A Recuperar". Lo marcado "A Tesorería"
+  // se cobra en este mes y forma parte del total mostrado.
   if (esPeriodoLicenciaSocio(anio, mes)) {
     remanenteFinal = hist.remanenteAnterior || 0;
     deudaFinal = hist.deudaAnterior || 0;
@@ -562,6 +566,11 @@ function renderMemberDashboard() {
     remanenteFinal = totalCredito - comprometidas;
   } else {
     deudaFinal = comprometidas - totalCredito;
+    // La deuda anterior no recuperada deja de integrar el saldo y queda marcada
+    // para cobrarse en Tesorería durante el mes siguiente.
+    const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
+    const pasajeProyectadoTesoreria = Math.max(0, hist.deudaAnterior - saldoTrasObjetivo);
+    deudaFinal = Math.max(0, deudaFinal - pasajeProyectadoTesoreria);
   }
 
   document.getElementById('member-kpi-objetivo').textContent = formatHours(objetivo);
@@ -583,7 +592,9 @@ function renderMemberDashboard() {
   document.getElementById('member-kpi-saldo').textContent = saldoDisplay;
 
   // El saldo de tesorería es el acumulado almacenado al período seleccionado.
-  document.getElementById('member-kpi-tesoreria').textContent = formatHours(hist.tesoreriaAcumulada || 0);
+  document.getElementById('member-kpi-tesoreria').textContent = formatHours(
+    (hist.tesoreriaAcumulada || 0) + (hist.tesoreriaPendiente || 0)
+  );
 }
 
 function renderMemberJornadasTable() {

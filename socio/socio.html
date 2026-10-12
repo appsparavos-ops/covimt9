@@ -30,7 +30,7 @@
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
   <!-- Importar Lógica del Socio -->
-  <script src="socio.js?v=20261012-11" defer></script>
+  <script src="socio.js?v=20261012-12" defer></script>
 
   <script>
     tailwind.config = {
@@ -301,7 +301,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw-socio.js?v=20261012-11')
+        navigator.serviceWorker.register('sw-socio.js?v=20261012-12')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));

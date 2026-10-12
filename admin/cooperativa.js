@@ -993,7 +993,8 @@ async function procesarCSV(event) {
           batchS.set(db.collection('saldosHistoricos').doc(clave), {
             deudaAnterior:      saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0,
             remanenteAnterior:  saldoAnterior > 0 ? saldoAnterior : 0,
-            tesoreriaAcumulada: 0
+            tesoreriaAcumulada: 0,
+            tesoreriaPendiente: 0
           });
           if (++c === 499) { await batchS.commit(); batchS = db.batch(); c = 0; }
         }
@@ -1112,15 +1113,17 @@ async function simularCierreMensual() {
       const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
       const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
-      // Un mes con objetivo global 0 es licencia: no consume el plazo de
-      // recuperación. Deuda, remanente y Tesorería pasan intactos al mes siguiente.
+      // Al comenzar este mes, lo marcado "A Tesorería" ya es exigible y se cobra,
+      // incluso si el mes es licencia. Sólo se pausa la deuda que estaba A Recuperar.
+      const tesoreriaTrasCobro = obtenerTesoreriaTotal(hist);
       if (periodoEsLicencia) {
         const claveSiguiente = `${s.id}_${sigAnioStr}-${sigMesStr}`;
         await db.collection('saldosHistoricos').doc(claveSiguiente).set({
-          deudaAnterior: hist.deudaAnterior || 0,
+          deudaAnterior: hist.deudaAnterior || 0,       // A Recuperar: se saltea la licencia
           remanenteAnterior: hist.remanenteAnterior || 0,
-          tesoreriaAcumulada: hist.tesoreriaAcumulada || 0,
-          trasladadoPorLicencia: true,
+          tesoreriaAcumulada: tesoreriaTrasCobro,      // A Tesorería: se cobra este mes
+          tesoreriaPendiente: 0,
+          recuperacionPausadaPorLicencia: true,
           periodoOrigen: `${anio}-${mes}`
         });
         continue;
@@ -1147,9 +1150,10 @@ async function simularCierreMensual() {
 
       const claveSiguiente = `${s.id}_${sigAnioStr}-${sigMesStr}`;
       await db.collection('saldosHistoricos').doc(claveSiguiente).set({
-        deudaAnterior: deudaFinal,
+        deudaAnterior: deudaFinal,                     // Déficit del mes: A Recuperar el próximo mes
         remanenteAnterior: remanenteFinal,
-        tesoreriaAcumulada: (hist.tesoreriaAcumulada || 0) + pasajeATesoreria
+        tesoreriaAcumulada: tesoreriaTrasCobro,        // Cobrado durante el mes que se cierra
+        tesoreriaPendiente: pasajeATesoreria           // Vencido ahora: se cobra el próximo mes
       });
     }
     registrarLog("Cierre Mensual", `CIERRE DE PERÍODO: ${mes}/${anio}. Se generaron los saldos y arrastres para ${sigMesStr}/${sigAnioStr}.`);
@@ -1322,10 +1326,19 @@ function obtenerResultadoHorasSocio(socio, anio, mes) {
 
 function obtenerSaldoHistoricoAlMes(socioId, anio, mes) {
   const clave = `${socioId}_${anio}-${mes}`;
-  if (saldosHistoricos[clave]) {
-    return saldosHistoricos[clave];
-  }
-  return { deudaAnterior: 0, remanenteAnterior: 0, tesoreriaAcumulada: 0 };
+  const data = saldosHistoricos[clave] || {};
+  return {
+    ...data,
+    deudaAnterior: Number(data.deudaAnterior) || 0,
+    remanenteAnterior: Number(data.remanenteAnterior) || 0,
+    tesoreriaAcumulada: Number(data.tesoreriaAcumulada) || 0,
+    // Importe vencido en el mes anterior que debe cobrarse en este mes.
+    tesoreriaPendiente: Number(data.tesoreriaPendiente) || 0
+  };
+}
+
+function obtenerTesoreriaTotal(hist) {
+  return (hist.tesoreriaAcumulada || 0) + (hist.tesoreriaPendiente || 0);
 }
 
 // --- PERÍODO GLOBAL DEL ADMIN ---
@@ -1941,9 +1954,10 @@ function renderPlanilla() {
 
     let remanenteFinal = 0;
     let deudaFinal = 0;
+    let pasajeProyectadoTesoreria = 0;
 
     if (periodoEsLicencia) {
-      // El período no consume ni genera saldos: se muestran los heredados intactos.
+      // Se cobra Tesorería pendiente y sólo se pausa la deuda A Recuperar.
       saldoDelMes = 0;
       totalCredito = hist.remanenteAnterior;
       remanenteFinal = hist.remanenteAnterior || 0;
@@ -1952,10 +1966,15 @@ function renderPlanilla() {
       remanenteFinal = totalCredito - comprometidas;
     } else {
       deudaFinal = comprometidas - totalCredito;
+      const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
+      pasajeProyectadoTesoreria = Math.max(0, hist.deudaAnterior - saldoTrasObjetivo);
+      deudaFinal = Math.max(0, deudaFinal - pasajeProyectadoTesoreria);
     }
 
     let obs = [];
-    if (periodoEsLicencia) obs.push("Mes de licencia: saldos trasladados sin vencimiento");
+    if (periodoEsLicencia) obs.push("Licencia: se cobra Tesorería y se pausa A Recuperar");
+    if (hist.tesoreriaPendiente > 0) obs.push(`A Tesorería este mes: ${formatHours(hist.tesoreriaPendiente)}`);
+    if (pasajeProyectadoTesoreria > 0) obs.push(`A Tesorería próximo mes: ${formatHours(pasajeProyectadoTesoreria)}`);
     if (exonerado) {
       if (s.certificadoMedico) {
         obs.push("Exonerado por certificado médico");
@@ -2026,7 +2045,7 @@ function renderPlanilla() {
         }
       </td>
       <td class="py-3 px-4 text-center font-bold text-red-700">
-        ${hist.tesoreriaAcumulada > 0 ? formatHours(hist.tesoreriaAcumulada) : '-'}
+        ${obtenerTesoreriaTotal(hist) > 0 ? formatHours(obtenerTesoreriaTotal(hist)) : '-'}
       </td>
       <td class="py-3 px-4 text-slate-500 max-w-xs truncate">${obs.join(" | ") || '-'}</td>
     `;
@@ -2232,7 +2251,7 @@ function renderDashboard() {
 
   const totalTesoreria = socios.reduce((total, socio) => {
     const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
-    return total + (hist.tesoreriaAcumulada || 0);
+    return total + obtenerTesoreriaTotal(hist);
   }, 0);
   document.getElementById('kpi-total-tesoreria').textContent = formatHours(totalTesoreria);
 
@@ -2649,7 +2668,7 @@ function exportPlanillaCSV() {
   });
 
   let csvContent = "sep=,\n";
-  csvContent += "Socio,Nº Socio,Edad,Horas Objetivo,Horas Computables,Saldo del Mes,Deuda Anterior,Remanente Anterior,Comprometidas,Total Crédito,Remanente Final,Deuda Final,Observaciones\n";
+  csvContent += "Socio,Nº Socio,Edad,Horas Objetivo,Horas Computables,Saldo del Mes,Deuda Anterior,Remanente Anterior,Comprometidas,Total Crédito,Remanente Final,Deuda Final,Tesorería Acumulada,A Tesorería Este Mes,Observaciones\n";
 
   sociosOrdenados.forEach(s => {
     const fechaNac = new Date(s.fechaNacimiento);
@@ -2669,6 +2688,7 @@ function exportPlanillaCSV() {
 
     let remanenteFinal = 0;
     let deudaFinal = 0;
+    let pasajeProyectadoTesoreria = 0;
 
     if (periodoEsLicencia) {
       saldoDelMes = 0;
@@ -2679,10 +2699,15 @@ function exportPlanillaCSV() {
       remanenteFinal = totalCredito - comprometidas;
     } else {
       deudaFinal = comprometidas - totalCredito;
+      const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
+      pasajeProyectadoTesoreria = Math.max(0, hist.deudaAnterior - saldoTrasObjetivo);
+      deudaFinal = Math.max(0, deudaFinal - pasajeProyectadoTesoreria);
     }
 
     let obs = [];
-    if (periodoEsLicencia) obs.push("Mes de licencia: saldos trasladados sin vencimiento");
+    if (periodoEsLicencia) obs.push("Licencia: se cobra Tesorería y se pausa A Recuperar");
+    if (hist.tesoreriaPendiente > 0) obs.push(`A Tesorería este mes: ${formatHours(hist.tesoreriaPendiente)}`);
+    if (pasajeProyectadoTesoreria > 0) obs.push(`A Tesorería próximo mes: ${formatHours(pasajeProyectadoTesoreria)}`);
     if (exonerado) {
       if (s.certificadoMedico) {
         obs.push("Exonerado por certificado médico");
@@ -2699,7 +2724,7 @@ function exportPlanillaCSV() {
 
     const observacionesStr = obs.join("; ");
 
-    csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${observacionesStr}"\n`;
+    csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${hist.tesoreriaAcumulada.toFixed(2)}","${hist.tesoreriaPendiente.toFixed(2)}","${observacionesStr}"\n`;
   });
 
   // Crear blob y descargar
@@ -2784,7 +2809,8 @@ function exportPlanillaPDF() {
 
     // Observaciones abreviadas para ahorrar espacio
     let obs = [];
-    if (periodoEsLicencia) obs.push("Mes de licencia: saldos trasladados");
+    if (periodoEsLicencia) obs.push("Licencia: A Recuperar pasa al mes siguiente");
+    if (hist.tesoreriaPendiente > 0) obs.push(`Tesorería este mes: ${formatHours(Math.round(hist.tesoreriaPendiente))}`);
     if (exonerado) obs.push(s.certificadoMedico ? "Exon.Méd." : "Exon.Edad");
     if (!exonerado && comisionAsignada) obs.push(`Com: ${comisionAsignada.split(' ').pop()}`);
 
@@ -2871,21 +2897,10 @@ function exportPlanillaPDF() {
 function exportReporteTesoreriaPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
-
-  const logo = document.getElementById('logo-coop');
-  if (logo && logo.complete && logo.naturalWidth !== 0) {
-    try { doc.addImage(logo, 'PNG', 20, 12, 15, 15); } catch(e) { console.error(e); }
-  }
-
   const anio = document.getElementById('planilla-anio').value;
   const mesNum = document.getElementById('planilla-mes').value;
   const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
   const mesNombre = meses[parseInt(mesNum) - 1];
-
-  if (esPeriodoLicencia(anio, mesNum)) {
-    showToast(`${mesNombre} ${anio} es un mes de licencia: las deudas se trasladan y no pasan a Tesorería.`, "info");
-    return;
-  }
 
   if (socios.length === 0) {
     showToast("No hay socios para exportar.", "info");
@@ -2900,55 +2915,40 @@ function exportReporteTesoreriaPDF() {
   });
 
   const tableData = [];
-  let totalGeneralTesoreria = 0;
+  let totalCobradoMes = 0;
 
-  sociosOrdenados.forEach(s => {
-    const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
-    const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
-    const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
-    
-    // totalCredito: lo trabajado este mes + remanente traído del mes anterior
-    const totalCredito = resHoras.computables + hist.remanenteAnterior;
-    
-    let pasajeATesoreria = 0;
-    let horasRecuperadas = 0;
-
-    if (hist.deudaAnterior > 0) {
-      // El socio debe cubrir primero el objetivo actual
-      const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
-      // Lo que queda se usa para recuperar deuda
-      horasRecuperadas = Math.min(hist.deudaAnterior, saldoTrasObjetivo);
-      // Lo que no se recuperó de la deuda anterior se pierde y va a Tesorería
-      pasajeATesoreria = hist.deudaAnterior - horasRecuperadas;
-    }
-
-    if (pasajeATesoreria > 0) {
-      totalGeneralTesoreria += pasajeATesoreria;
-      tableData.push([
-        s.id,
-        s.nombre,
-        formatHours(Math.round(hist.deudaAnterior)),
-        formatHours(Math.round(resHoras.computables)),
-        formatHours(Math.round(horasRecuperadas)),
-        formatHours(Math.round(pasajeATesoreria))
-      ]);
-    }
+  sociosOrdenados.forEach(socio => {
+    const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mesNum);
+    const aCobrar = hist.tesoreriaPendiente || 0;
+    if (aCobrar <= 0) return;
+    totalCobradoMes += aCobrar;
+    tableData.push([
+      socio.id,
+      socio.nombre,
+      formatHours(Math.round(hist.deudaAnterior || 0)),
+      formatHours(Math.round(aCobrar)),
+      formatHours(Math.round(obtenerTesoreriaTotal(hist)))
+    ]);
   });
 
   if (tableData.length === 0) {
-    showToast(`No se encontraron deudas sin recuperar en ${mesNombre} ${anio}.`, "info");
+    showToast(`No hay horas a cobrar en Tesorería durante ${mesNombre} ${anio}.`, "info");
     return;
   }
 
+  const logo = document.getElementById('logo-coop');
+  if (logo && logo.complete && logo.naturalWidth !== 0) {
+    try { doc.addImage(logo, 'PNG', 20, 12, 15, 15); } catch(e) { console.error(e); }
+  }
   doc.setFontSize(16);
   doc.setTextColor(5, 150, 105);
   doc.text("COVIMT 9 - Informe de Tesorería", 105, 20, { align: 'center' });
   doc.setFontSize(12);
   doc.setTextColor(40);
-  doc.text(`Pasaje de Horas no Recuperadas - ${mesNombre} ${anio}`, 105, 28, { align: 'center' });
+  doc.text(`Horas que se cobran en ${mesNombre} ${anio}`, 105, 28, { align: 'center' });
 
   doc.autoTable({
-    head: [['ID', 'Socio Titular', 'Deuda Inicial', 'Trabajado', 'Recuperado', 'A Tesorería']],
+    head: [['ID', 'Socio Titular', 'A Recuperar', 'A Tesorería este mes', 'Tesorería total']],
     body: tableData,
     startY: 35,
     theme: 'grid',
@@ -2957,9 +2957,8 @@ function exportReporteTesoreriaPDF() {
     columnStyles: {
       0: { cellWidth: 15, halign: 'center' },
       2: { halign: 'center' },
-      3: { halign: 'center' },
-      4: { halign: 'center' },
-      5: { halign: 'center', fontStyle: 'bold' }
+      3: { halign: 'center', fontStyle: 'bold' },
+      4: { halign: 'center', fontStyle: 'bold' }
     },
     margin: { top: 30 }
   });
@@ -2967,7 +2966,7 @@ function exportReporteTesoreriaPDF() {
   const finalY = doc.lastAutoTable.finalY + 10;
   doc.setFontSize(10);
   doc.setFont(undefined, 'bold');
-  doc.text(`Total de horas pasadas a Tesorería en el período: ${formatHours(Math.round(totalGeneralTesoreria))}`, 20, finalY);
+  doc.text(`Total cobrado en Tesorería durante el período: ${formatHours(Math.round(totalCobradoMes))}`, 20, finalY);
 
   doc.save(`COVIMT9_Tesoreria_${mesNum}_${anio}.pdf`);
   showToast("Reporte de Tesorería generado correctamente.", "success");
