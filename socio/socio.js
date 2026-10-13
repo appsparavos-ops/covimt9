@@ -5,7 +5,11 @@ let memberRegistros = []; // Will hold the current member's jornada records
 let memberConfig = { objetivoHoras: 4, periodoInicial: '' }; // Configuración global y período de apertura
 let memberSaldosHistoricos = {}; // Saldos históricos del socio actual
 let memberPeriodosHabilitados = new Set(); // Períodos con saldo de apertura generado por un cierre
-let memberObjetivosMensuales = {}; // Objetivo global por período YYYY-MM
+let memberObjetivosMensuales = {}; // Objetivos cargados sólo para períodos consultados
+let memberRegistrosCache = new Map(); // Jornadas por AAAA-MM
+let memberConsultaMensualDisponible = true; // Se desactiva si falta el índice socioId + fecha
+let memberCargaPeriodoToken = 0; // Evita que una respuesta antigua reemplace el período actual
+let memberCambioPeriodoTimer = null; // Agrupa cambios rápidos de mes/año
 let currentMemberSocioId = null;
 const memberHoy = new Date();
 let memberPeriodoAnio = String(memberHoy.getFullYear());
@@ -257,21 +261,28 @@ async function initMemberApp() {
   }
   db = firebase.firestore();
 
-  // Usar persistencia LOCAL para que la sesión anónima sobreviva entre aperturas de la PWA
-  await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => console.error("Error al configurar persistencia:", err));
+  const auth = firebase.auth();
+  // Reutilizar la sesión persistida y esperar a que Firebase termine de restaurarla.
+  await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => console.error("Error al configurar persistencia:", err));
 
   try {
-    // Login anónimo automático para permitir consultas a Firestore
-    if (!firebase.auth().currentUser) {
-      await firebase.auth().signInAnonymously();
-      console.log("Sesión anónima iniciada:", firebase.auth().currentUser.uid);
+    const usuarioRestaurado = await new Promise((resolve, reject) => {
+      let unsubscribe = () => {};
+      unsubscribe = auth.onAuthStateChanged(user => {
+        unsubscribe();
+        resolve(user);
+      }, reject);
+    });
+    if (!usuarioRestaurado) {
+      const credencial = await auth.signInAnonymously();
+      console.log("Sesión anónima iniciada:", credencial.user.uid);
     }
 
-    // Verificar si ya existe una sesión interna de socio
+    // Verificar si ya existe una sesión interna de socio.
     currentMemberSocioId = localStorage.getItem('memberSocioId');
     if (currentMemberSocioId) {
       showMemberPortal();
-      loadMemberData(currentMemberSocioId);
+      await loadMemberData(currentMemberSocioId);
     } else {
       showMemberLogin();
     }
@@ -289,13 +300,11 @@ async function initMemberApp() {
 function showMemberLogin() {
   document.getElementById('view-member-login').classList.remove('hidden');
   document.getElementById('member-portal-container').classList.add('hidden');
-  lucide.createIcons();
 }
 
 function showMemberPortal() {
   document.getElementById('view-member-login').classList.add('hidden');
   document.getElementById('member-portal-container').classList.remove('hidden');
-  lucide.createIcons();
 }
 
 // --- Función de hash SHA-256 para PIN ---
@@ -370,7 +379,7 @@ async function handleMemberLogin() {
     showToast(`Bienvenido, ${socioData.nombre}.`, "success");
     registrarLog("Acceso Portal Socio", `LOGIN - El socio ${socioData.nombre} (ID: ${currentMemberSocioId}) ingresó a su portal.`);
     showMemberPortal();
-    loadMemberData(currentMemberSocioId);
+    await loadMemberData(currentMemberSocioId, socioData);
 
     // Limpiar campos sensibles
     document.getElementById('member-login-pin').value = '';
@@ -397,6 +406,11 @@ async function handleMemberLogout() {
     memberSaldosHistoricos = {};
     memberPeriodosHabilitados = new Set();
     memberObjetivosMensuales = {};
+    memberRegistrosCache = new Map();
+    memberConsultaMensualDisponible = true;
+    memberCargaPeriodoToken++;
+    if (memberCambioPeriodoTimer) clearTimeout(memberCambioPeriodoTimer);
+    memberCambioPeriodoTimer = null;
     showToast("Sesión cerrada.", "info");
     showMemberLogin();
   }
@@ -408,68 +422,138 @@ function establecerPeriodoActualDispositivo() {
   memberPeriodoMes = String(fechaDispositivo.getMonth() + 1).padStart(2, '0');
 }
 
-async function refrescarSaldosPeriodosSocio(socioId) {
-  const saldosSnapshot = await db.collection('saldosHistoricos').get();
-  memberSaldosHistoricos = {};
-  memberPeriodosHabilitados = new Set();
-  saldosSnapshot.docs.forEach(doc => {
-    const separador = doc.id.lastIndexOf('_');
-    if (separador < 0) return;
-    const sId = doc.id.substring(0, separador);
-    const period = doc.id.substring(separador + 1);
-    if (/^\d{4}-\d{2}$/.test(period)) memberPeriodosHabilitados.add(period);
-    if (sId === socioId) memberSaldosHistoricos[doc.id] = doc.data();
-  });
+function setMemberDataLoading(loading) {
+  const indicador = document.getElementById('member-data-loading');
+  const datos = document.getElementById('member-period-data');
+  const estado = document.getElementById('member-period-status');
+  if (indicador) indicador.classList.toggle('hidden', !loading);
+  const mesSelect = document.getElementById('member-period-month');
+  const anioSelect = document.getElementById('member-period-year');
+  if (mesSelect) mesSelect.disabled = loading;
+  if (anioSelect) anioSelect.disabled = loading;
+  if (loading) {
+    datos?.classList.add('hidden');
+    estado?.classList.add('hidden');
+  }
 }
 
-async function loadMemberData(socioId) {
-  // Cada ingreso al portal comienza en el mes y año actuales del dispositivo.
-  establecerPeriodoActualDispositivo();
-  document.getElementById('member-name-display').textContent = localStorage.getItem('memberSocioName') || 'Socio';
+async function cargarJornadasCompatibilidad(socioId, periodo) {
+  let todos = memberRegistrosCache.get('__todos__')?.datos;
+  if (!todos) {
+    const snap = await db.collection('registros').where('socioId', '==', socioId).get();
+    todos = snap.docs.map(doc => doc.data());
+    memberRegistrosCache.set('__todos__', { datos: todos, cargadoEn: Date.now() });
+  }
+  const datos = todos.filter(r => String(r.fecha || '').startsWith(periodo));
+  memberRegistrosCache.set(periodo, { datos, cargadoEn: Date.now() });
+  return datos;
+}
+
+async function cargarJornadasPeriodo(socioId, periodo) {
+  const cache = memberRegistrosCache.get(periodo);
+  if (cache && Date.now() - cache.cargadoEn < 30000) return cache.datos;
+  if (!memberConsultaMensualDisponible) return cargarJornadasCompatibilidad(socioId, periodo);
+
+  const siguiente = obtenerPeriodoSiguienteSocio(periodo.slice(0, 4), periodo.slice(5, 7));
+  try {
+    const snap = await db.collection('registros')
+      .where('socioId', '==', socioId)
+      .where('fecha', '>=', `${periodo}-01`)
+      .where('fecha', '<', `${siguiente}-01`)
+      .get();
+    const datos = snap.docs.map(doc => doc.data());
+    memberRegistrosCache.set(periodo, { datos, cargadoEn: Date.now() });
+    return datos;
+  } catch (error) {
+    // Proyectos sin índice compuesto: una sola lectura histórica por sesión como compatibilidad.
+    memberConsultaMensualDisponible = false;
+    console.warn('Consulta mensual sin índice; usando respaldo por socio:', error.message);
+    return cargarJornadasCompatibilidad(socioId, periodo);
+  }
+}
+
+async function cargarDatosPeriodoSocio(socioId, { renderizar = true, mostrarCarga = true } = {}) {
+  const token = ++memberCargaPeriodoToken;
+  const periodo = `${memberPeriodoAnio}-${memberPeriodoMes}`;
+  const siguiente = obtenerPeriodoSiguienteSocio(memberPeriodoAnio, memberPeriodoMes);
+  if (mostrarCarga) setMemberDataLoading(true);
 
   try {
-    // Fetch member's socio data
-    const socioDoc = await db.collection('socios').doc(socioId).get();
-    if (socioDoc.exists) {
-      memberSocios = [socioDoc.data()]; // Store as an array for compatibility with utility functions
+    const [saldoActualDoc, saldoSiguienteDoc, objetivoDoc, jornadas] = await Promise.all([
+      db.collection('saldosHistoricos').doc(`${socioId}_${periodo}`).get(),
+      db.collection('saldosHistoricos').doc(`${socioId}_${siguiente}`).get(),
+      db.collection('objetivosMensuales').doc(periodo).get(),
+      cargarJornadasPeriodo(socioId, periodo)
+    ]);
+    if (token !== memberCargaPeriodoToken) return false;
+
+    const claveActual = `${socioId}_${periodo}`;
+    const claveSiguiente = `${socioId}_${siguiente}`;
+    if (saldoActualDoc.exists) {
+      memberSaldosHistoricos[claveActual] = saldoActualDoc.data();
+      memberPeriodosHabilitados.add(periodo);
     } else {
+      delete memberSaldosHistoricos[claveActual];
+      memberPeriodosHabilitados.delete(periodo);
+    }
+    if (saldoSiguienteDoc.exists) {
+      memberSaldosHistoricos[claveSiguiente] = saldoSiguienteDoc.data();
+      memberPeriodosHabilitados.add(siguiente);
+    } else {
+      delete memberSaldosHistoricos[claveSiguiente];
+      memberPeriodosHabilitados.delete(siguiente);
+    }
+
+    if (objetivoDoc.exists) {
+      const valor = Number(objetivoDoc.data().objetivoHoras);
+      if (Number.isFinite(valor) && valor >= 0) memberObjetivosMensuales[periodo] = valor;
+    } else {
+      delete memberObjetivosMensuales[periodo];
+    }
+    memberRegistros = jornadas;
+    if (renderizar) {
+      renderMemberDashboard();
+      renderMemberJornadasTable();
+    }
+    return true;
+  } finally {
+    if (mostrarCarga && token === memberCargaPeriodoToken) setMemberDataLoading(false);
+  }
+}
+
+async function loadMemberData(socioId, socioPrefetched = null) {
+  establecerPeriodoActualDispositivo();
+  document.getElementById('member-name-display').textContent = localStorage.getItem('memberSocioName') || 'Socio';
+  setMemberDataLoading(true);
+
+  try {
+    memberObjetivosMensuales = {};
+    memberSaldosHistoricos = {};
+    memberPeriodosHabilitados = new Set();
+    memberRegistrosCache = new Map();
+    memberConsultaMensualDisponible = true;
+
+    // Socio, configuración y datos del período viajan simultáneamente.
+    const [socioDoc, configDoc] = await Promise.all([
+      socioPrefetched ? Promise.resolve({ exists: true, data: () => socioPrefetched }) : db.collection('socios').doc(socioId).get(),
+      db.collection('config').doc('metaGlobal').get(),
+      cargarDatosPeriodoSocio(socioId, { renderizar: false, mostrarCarga: false })
+    ]);
+    if (!socioDoc.exists) {
       showToast("No se encontraron datos de socio.", "error");
       return;
     }
-
-    // Fetch global config for objective hours
-    const configDoc = await db.collection('config').doc('metaGlobal').get();
-    if (configDoc.exists) {
-      memberConfig = normalizarConfig(configDoc.data());
-    }
-
-    // Fetch global objectives by period. Missing periods use the legacy default.
-    const objetivosSnapshot = await db.collection('objetivosMensuales').get();
-    memberObjetivosMensuales = {};
-    objetivosSnapshot.docs.forEach(doc => {
-      const valor = Number(doc.data().objetivoHoras);
-      if (Number.isFinite(valor) && valor >= 0) memberObjetivosMensuales[doc.id] = valor;
-    });
-
-    // Fetch member's records
-    const registrosSnapshot = await db.collection('registros').where('socioId', '==', socioId).get();
-    memberRegistros = registrosSnapshot.docs.map(doc => doc.data());
-
-    // Cargar saldos propios y períodos globalmente habilitados por cierres.
-    await refrescarSaldosPeriodosSocio(socioId);
-
+    memberSocios = [socioDoc.data()];
+    memberConfig = configDoc.exists ? normalizarConfig(configDoc.data()) : normalizarConfig({});
     inicializarSelectorPeriodoSocio();
     renderMemberDashboard();
     renderMemberJornadasTable();
-
-    // Verificar si está usando PIN por defecto
-    if (memberSocios.length > 0) {
-      checkDefaultPIN(memberSocios[0]);
-    }
-
+    checkDefaultPIN(memberSocios[0]);
   } catch (error) {
     showToast("Error al cargar tus datos: " + error.message, "error");
     console.error("Error loading member data:", error);
+  } finally {
+    setMemberDataLoading(false);
   }
 }
 
@@ -550,20 +634,24 @@ function inicializarSelectorPeriodoSocio() {
   monthSelect.value = memberPeriodoMes;
 }
 
-async function cambiarPeriodoSocio() {
+function cambiarPeriodoSocio() {
   const monthSelect = document.getElementById('member-period-month');
   const yearSelect = document.getElementById('member-period-year');
   if (!monthSelect || !yearSelect) return;
   memberPeriodoMes = monthSelect.value;
   memberPeriodoAnio = yearSelect.value;
-  try {
-    // Volver a consultar permite detectar un cierre realizado mientras el portal estaba abierto.
-    if (currentMemberSocioId) await refrescarSaldosPeriodosSocio(currentMemberSocioId);
-  } catch (error) {
-    console.error('No se pudieron actualizar los períodos:', error);
-  }
-  renderMemberDashboard();
-  renderMemberJornadasTable();
+  if (memberCambioPeriodoTimer) clearTimeout(memberCambioPeriodoTimer);
+  memberCambioPeriodoTimer = setTimeout(async () => {
+    memberCambioPeriodoTimer = null;
+    try {
+      // Sólo consulta dos saldos, el objetivo y las jornadas del período elegido.
+      if (currentMemberSocioId) await cargarDatosPeriodoSocio(currentMemberSocioId);
+    } catch (error) {
+      console.error('No se pudo actualizar el período:', error);
+      setMemberDataLoading(false);
+      showToast('No se pudo cargar el período seleccionado.', 'error');
+    }
+  }, 120);
 }
 
 function nombrePeriodoSocio() {
@@ -828,7 +916,6 @@ function openMemberSettings() {
   const modal = document.getElementById('modal-member-settings');
   if (!modal) return;
   modal.classList.remove('hidden');
-  if (typeof lucide !== 'undefined') lucide.createIcons();
   setTimeout(() => document.getElementById('member-current-pin')?.focus(), 50);
 }
 

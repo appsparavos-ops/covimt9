@@ -15,12 +15,12 @@
   <link rel="apple-touch-icon" href="icons-socio/apple-touch-icon.png">
   <link rel="manifest" href="manifest-socio.json">
 
-  <!-- Tailwind CSS local -->
-  <script src="vendor/tailwindcss-3.4.17.js"></script>
+  <!-- CSS precompilado: evita compilar Tailwind en el teléfono -->
+  <link href="socio.css?v=20261012-25" rel="stylesheet">
   <!-- Fuente Outfit local -->
   <link href="vendor/fonts/outfit.css" rel="stylesheet">
-  <!-- Iconos Lucide locales -->
-  <script src="vendor/lucide-0.468.0.min.js"></script>
+  <!-- Sólo los iconos usados por esta pantalla -->
+  <script src="icons-socio.js?v=20261012-25"></script>
 
   <!-- Firebase SDKs locales (Compat v9) -->
   <script src="vendor/firebase-app-compat-9.22.0.js"></script>
@@ -30,30 +30,8 @@
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
   <!-- Importar Lógica del Socio -->
-  <script src="socio.js?v=20261012-24" defer></script>
+  <script src="socio.js?v=20261012-25" defer></script>
 
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Outfit', 'sans-serif'],
-          },
-          colors: {
-            brand: {
-              50: '#f0fdf4',
-              100: '#dcfce7',
-              500: '#10b981',
-              600: '#059669',
-              700: '#047857',
-              800: '#065f46',
-              900: '#064e3b',
-            }
-          }
-        }
-      }
-    }
-  </script>
   <style>
     .tab-content { display: none; }
     .tab-content.active { display: block; animation: fadeIn 0.3s ease-out; }
@@ -189,6 +167,13 @@
               <h2 id="member-period-status-title" class="font-bold text-amber-900">Período no disponible</h2>
               <p id="member-period-status-detail" class="text-sm text-amber-800 mt-1"></p>
             </div>
+          </div>
+        </div>
+
+        <div id="member-data-loading" class="hidden bg-white border border-slate-100 p-8 rounded-2xl shadow-sm text-center">
+          <div class="inline-flex items-center gap-3 text-brand-700 font-semibold text-sm">
+            <span class="w-5 h-5 rounded-full border-2 border-brand-200 border-t-brand-600 animate-spin"></span>
+            Cargando el período seleccionado…
           </div>
         </div>
 
@@ -354,7 +339,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw-socio.js?v=20261012-24')
+        navigator.serviceWorker.register('sw-socio.js?v=20261012-25')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));

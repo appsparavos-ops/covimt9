@@ -3,10 +3,12 @@
 //  Scope: /socio/ (independiente del admin)
 // ============================================================
 
-const CACHE_NAME = 'covimt9-socio-v24-saldo-post-cierre';
+const CACHE_NAME = 'covimt9-socio-v25-carga-optimizada';
 const STATIC_ASSETS = [
   'socio.html',
-  'socio.js?v=20261012-24',
+  'socio.js?v=20261012-25',
+  'socio.css?v=20261012-25',
+  'icons-socio.js?v=20261012-25',
   'manifest-socio.json',
   'firebaseConfig.js',
   'pinos.png',
@@ -14,9 +16,7 @@ const STATIC_ASSETS = [
   'icons-socio/icon-512x512.png',
   'icons-socio/icon-maskable-512x512.png',
   'icons-socio/apple-touch-icon.png',
-  // Librerías locales (sin dependencia de CDN)
-  'vendor/tailwindcss-3.4.17.js',
-  'vendor/lucide-0.468.0.min.js',
+  // Firebase local (CSS e iconos propios ya están incluidos arriba)
   'vendor/firebase-app-compat-9.22.0.js',
   'vendor/firebase-auth-compat-9.22.0.js',
   'vendor/firebase-firestore-compat-9.22.0.js',
