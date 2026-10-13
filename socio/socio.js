@@ -200,7 +200,12 @@ function obtenerSaldoHistoricoAlMes(socioId, anio, mes) {
     deudaAnterior: Number(data.deudaAnterior) || 0,
     remanenteAnterior: Number(data.remanenteAnterior) || 0,
     tesoreriaAcumulada: Number(data.tesoreriaAcumulada) || 0,
-    tesoreriaPendiente: Number(data.tesoreriaPendiente) || 0
+    tesoreriaPendiente: Number(data.tesoreriaPendiente) || 0,
+    tesoreriaCobradaEnPeriodo: Number(data.tesoreriaCobradaEnPeriodo) || 0,
+    tesoreriaPasadaEnCierre: Number(data.tesoreriaPasadaEnCierre) || 0,
+    tesoreriaAcumuladaAlCierre: Number(data.tesoreriaAcumuladaAlCierre) || 0,
+    cerrado: data.cerrado === true,
+    fechaCierreContable: data.fechaCierreContable || ''
   };
 }
 
@@ -684,16 +689,21 @@ function renderMemberDashboard() {
 
   // Para meses cerrados se muestran los resultados efectivamente guardados.
   const pasajeMostrado = mesCerrado
-    ? Number(histSiguienteRaw.tesoreriaPendiente || 0)
+    ? (hist.cerrado
+      ? Number(hist.tesoreriaPasadaEnCierre || 0)
+      : Number(histSiguienteRaw.tesoreriaPendiente || 0)) // compatibilidad con cierres anteriores
     : pasajeProyectado;
   const recuperarMostrado = mesCerrado
     ? Number(histSiguienteRaw.deudaAnterior || 0)
     : recuperarProyectado;
 
+  const fechaCierreTexto = hist.fechaCierreContable
+    ? `el ${formatDateString(hist.fechaCierreContable)}`
+    : 'al cierre del período';
   const saldoDetalle = document.getElementById('member-kpi-saldo-detalle');
   if (saldoDetalle) {
     if (mesCerrado && pasajeMostrado > 0) {
-      saldoDetalle.textContent = `${formatHours(pasajeMostrado)} pasaron a Tesorería al cierre`;
+      saldoDetalle.textContent = `${formatHours(pasajeMostrado)} pasaron a Tesorería ${fechaCierreTexto}`;
     } else if (!mesCerrado && pasajeMostrado > 0) {
       saldoDetalle.textContent = `${formatHours(pasajeMostrado)} vencerían al cierre si no se recuperan`;
     } else if (periodoLicencia && hist.deudaAnterior > 0) {
@@ -708,7 +718,11 @@ function renderMemberDashboard() {
   }
 
   // Tesorería actual nunca incorpora anticipadamente la proyección del próximo cierre.
-  const tesoreriaActual = (hist.tesoreriaAcumulada || 0) + (hist.tesoreriaPendiente || 0);
+  const tesoreriaActual = hist.cerrado
+    ? (hist.tesoreriaAcumuladaAlCierre || 0)
+    : mesCerrado
+      ? (hist.tesoreriaAcumulada || 0) + (hist.tesoreriaPendiente || 0) + Number(histSiguienteRaw.tesoreriaPendiente || 0) // cierre legado
+      : (hist.tesoreriaAcumulada || 0) + (hist.tesoreriaPendiente || 0);
   document.getElementById('member-kpi-tesoreria').textContent = formatHours(tesoreriaActual);
 
   const estadoTesoreria = document.getElementById('member-kpi-tesoreria-estado');
@@ -717,9 +731,9 @@ function renderMemberDashboard() {
       ? `<span class="block text-red-700 mb-1">${formatHours(hist.tesoreriaPendiente)} se cobran en este período</span>`
       : '';
     if (!mesCerrado && pasajeMostrado > 0) {
-      estadoTesoreria.innerHTML = `${cobroActual}<span class="safe-pulse animate-pulse inline-flex rounded-full bg-amber-200 text-amber-900 px-2 py-1">${formatHours(pasajeMostrado)} SI NO SE RECUPERAN</span><span class="block text-amber-800 mt-1 font-medium">Pasarían a Tesorería el próximo mes</span>`;
+      estadoTesoreria.innerHTML = `${cobroActual}<span class="safe-pulse animate-pulse inline-flex rounded-full bg-amber-200 text-amber-900 px-2 py-1">${formatHours(pasajeMostrado)} SI NO SE RECUPERAN</span><span class="block text-amber-800 mt-1 font-medium">Pasarían a Tesorería al cerrar este mes</span>`;
     } else if (mesCerrado && pasajeMostrado > 0) {
-      estadoTesoreria.innerHTML = `${cobroActual}<span class="inline-flex rounded-full bg-red-100 text-red-800 px-2 py-1">${formatHours(pasajeMostrado)} pasaron al mes siguiente</span>`;
+      estadoTesoreria.innerHTML = `${cobroActual}<span class="inline-flex rounded-full bg-red-100 text-red-800 px-2 py-1">${formatHours(pasajeMostrado)} pasaron a Tesorería ${fechaCierreTexto}</span>`;
     } else if (periodoLicencia && hist.deudaAnterior > 0) {
       estadoTesoreria.innerHTML = `${cobroActual}<span class="inline-flex rounded-full bg-blue-100 text-blue-800 px-2 py-1">A Recuperar pausadas por licencia</span>`;
     } else {
@@ -738,8 +752,8 @@ function renderMemberDashboard() {
       proyeccion.classList.add('bg-slate-50', 'border-slate-200', 'text-slate-700');
       proyeccionTitulo.textContent = periodoLicencia ? 'Resultado del cierre de licencia' : 'Resultado del cierre';
       proyeccionDetalle.textContent = pasajeMostrado > 0
-        ? 'Estas son las horas que efectivamente se trasladaron al cerrar el período.'
-        : 'El período fue cerrado sin nuevas horas trasladadas a Tesorería.';
+        ? `Estas horas se imputaron a Tesorería ${fechaCierreTexto}, no en el mes siguiente.`
+        : 'El período fue cerrado sin nuevas horas imputadas a Tesorería.';
     } else if (periodoLicencia) {
       proyeccion.classList.add('bg-blue-50', 'border-blue-200', 'text-blue-800');
       proyeccionTitulo.textContent = 'Mes de licencia';
