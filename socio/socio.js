@@ -717,20 +717,13 @@ function renderMemberDashboard() {
     }
   }
 
-  // Separar el movimiento del período del acumulado histórico evita aparentar un cobro doble.
+  // Mostrar únicamente el movimiento del período evita confundirlo con cobros históricos.
   const movimientoTesoreriaPeriodo = hist.cerrado
     ? (hist.tesoreriaCobradaEnPeriodo || 0)
     : mesCerrado
       ? (hist.tesoreriaPendiente || 0) + Number(histSiguienteRaw.tesoreriaPendiente || 0) // cierre legado
       : (hist.tesoreriaPendiente || 0);
-  const tesoreriaAcumuladaMostrada = hist.cerrado
-    ? (hist.tesoreriaAcumuladaAlCierre || 0)
-    : mesCerrado
-      ? (hist.tesoreriaAcumulada || 0) + (hist.tesoreriaPendiente || 0) + Number(histSiguienteRaw.tesoreriaPendiente || 0) // cierre legado
-      : (hist.tesoreriaAcumulada || 0) + (hist.tesoreriaPendiente || 0);
   document.getElementById('member-kpi-tesoreria').textContent = formatHours(movimientoTesoreriaPeriodo);
-  const acumuladaTesoreria = document.getElementById('member-kpi-tesoreria-acumulada');
-  if (acumuladaTesoreria) acumuladaTesoreria.textContent = `Tesorería acumulada: ${formatHours(tesoreriaAcumuladaMostrada)}`;
 
   const estadoTesoreria = document.getElementById('member-kpi-tesoreria-estado');
   if (estadoTesoreria) {
