@@ -630,6 +630,7 @@ function renderMemberDashboard() {
   const objetivo = obtenerObjetivoHorasSocio(socio, anio, mes);
   const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
   const resHoras = obtenerResultadoHorasSocio(socio, anio, mes);
+  const periodoLicencia = esPeriodoLicenciaSocio(anio, mes);
 
   const comprometidas = objetivo + hist.deudaAnterior;
   const totalCredito = resHoras.computables + hist.remanenteAnterior;
@@ -639,15 +640,25 @@ function renderMemberDashboard() {
 
   // En licencia se pausa únicamente "A Recuperar". Lo marcado "A Tesorería"
   // se cobra en este mes y forma parte del total mostrado.
-  if (esPeriodoLicenciaSocio(anio, mes)) {
+  if (periodoLicencia) {
     remanenteFinal = hist.remanenteAnterior || 0;
     deudaFinal = hist.deudaAnterior || 0;
   } else if (totalCredito >= comprometidas) {
     remanenteFinal = totalCredito - comprometidas;
   } else {
-    // El saldo del período muestra todas las horas comprometidas todavía no cubiertas.
-    // El eventual pasaje de deuda anterior a Tesorería se aplica recién al cerrar el mes.
+    // Mientras está abierto se muestran todas las horas comprometidas no cubiertas.
     deudaFinal = comprometidas - totalCredito;
+  }
+
+  const periodoSiguiente = obtenerPeriodoSiguienteSocio(anio, mes);
+  const histSiguienteRaw = memberSaldosHistoricos[`${socio.id}_${periodoSiguiente}`];
+  const mesCerrado = Boolean(histSiguienteRaw);
+
+  // Después del cierre, el saldo debe reflejar el resultado real: las horas que
+  // pasaron a Tesorería dejan de integrar la deuda A Recuperar.
+  if (mesCerrado) {
+    deudaFinal = Number(histSiguienteRaw.deudaAnterior || 0);
+    remanenteFinal = Number(histSiguienteRaw.remanenteAnterior || 0);
   }
 
   // Mostrar el compromiso total, igual que Admin: objetivo del período + A Recuperar.
@@ -672,11 +683,6 @@ function renderMemberDashboard() {
     document.getElementById('member-kpi-saldo').classList.remove('text-red-600', 'text-emerald-600');
   }
   document.getElementById('member-kpi-saldo').textContent = saldoDisplay;
-
-  const periodoLicencia = esPeriodoLicenciaSocio(anio, mes);
-  const periodoSiguiente = obtenerPeriodoSiguienteSocio(anio, mes);
-  const histSiguienteRaw = memberSaldosHistoricos[`${socio.id}_${periodoSiguiente}`];
-  const mesCerrado = Boolean(histSiguienteRaw);
 
   // Mientras el mes está abierto se calcula qué ocurriría si cerrara ahora.
   const creditoParaDeudaAnterior = Math.max(0, totalCredito - objetivo);
