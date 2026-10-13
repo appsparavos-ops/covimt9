@@ -35,7 +35,7 @@
   <!-- Módulo Offline Sync -->
   <script src="offlineSync.js?v=20261012-11"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
-  <script src="cooperativa.js?v=20261012-20" defer></script>
+  <script src="cooperativa.js?v=20261012-21" defer></script>
 
   <script>
     tailwind.config = {
@@ -527,10 +527,10 @@
                 <option value="11">Noviembre</option>
                 <option value="12">Diciembre</option>
               </select>
-              <button id="btn-cerrar-mes" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm" title="Realizar el cierre y arrastrar remanentes/deudas al mes siguiente">
+              <button id="btn-cerrar-mes" style="display:none" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm" title="Cerrar el período e imputar Tesorería al último día del mes">
                 <i data-lucide="lock" class="w-3.5 h-3.5"></i> Cerrar Mes
               </button>
-              <button id="btn-reabrir-mes" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm" title="Reabrir el mes actual para modificaciones y recalcular saldos futuros">
+              <button id="btn-reabrir-mes" style="display:none" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm" title="Reabrir el mes cerrado para modificaciones y recalcular saldos futuros">
                 <i data-lucide="unlock" class="w-3.5 h-3.5"></i> Reabrir Mes
               </button>
               <!-- El botón de CSV se oculta y se agrega el de PDF -->
@@ -1104,7 +1104,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js?v=20261012-20')
+        navigator.serviceWorker.register('sw.js?v=20261012-21')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));

@@ -860,18 +860,11 @@ function applyModoEdicion() {
   if (btnSync) {
     btnSync.classList.toggle('hidden', !modoEdicion);
   }
-  // Botones de Cerrar Mes y Descargar CSV
-  const btnCerrarMes = document.getElementById('btn-cerrar-mes');
+  // Cerrar/Reabrir son mutuamente excluyentes según el estado del período.
+  actualizarBotonesCierreMes();
   const btnDescargarCSV = document.getElementById('btn-descargar-csv');
-  if (btnCerrarMes) {
-    btnCerrarMes.style.display = modoEdicion ? '' : 'none';
-  }
   if (btnDescargarCSV) {
     btnDescargarCSV.style.display = modoEdicion ? '' : 'none';
-  }
-  const btnReabrirMes = document.getElementById('btn-reabrir-mes');
-  if (btnReabrirMes) {
-    btnReabrirMes.style.display = modoEdicion ? '' : 'none';
   }
   const btnDescargarPDF = document.getElementById('btn-descargar-pdf');
   if (btnDescargarPDF) {
@@ -1097,12 +1090,23 @@ async function simularCierreMensual() {
   const anio = document.getElementById('planilla-anio').value;
   const mes = document.getElementById('planilla-mes').value;
 
+  if (!obtenerEstadoPeriodoPlanilla(anio, mes).habilitado) {
+    showToast("Este período todavía no está habilitado para cierre.", "error");
+    actualizarBotonesCierreMes();
+    return;
+  }
+  if (obtenerEstadoCierreMes(anio, mes).cerrado) {
+    showToast("El período ya está cerrado. Debe reabrirlo antes de volver a cerrarlo.", "info");
+    actualizarBotonesCierreMes();
+    return;
+  }
+
   if (!navigator.onLine) {
     showToast("El cierre mensual requiere conexión a internet.", "error");
     return;
   }
 
-  if (!await showConfirmModal("Cierre Mensual", `¿Confirmas el cierre del período ${mes}/${anio}? Se calcularán y arrastrarán los saldos para el mes siguiente.`)) {
+  if (!await showConfirmModal("Cierre Mensual", `¿Confirmas el cierre del período ${mes}/${anio}? Tesorería se imputará al último día del período y se generará la apertura siguiente.`)) {
     return;
   }
 
@@ -1204,6 +1208,17 @@ async function simularCierreMensual() {
 async function reabrirMes() {
   const anio = document.getElementById('planilla-anio').value;
   const mes = document.getElementById('planilla-mes').value;
+
+  if (!obtenerEstadoPeriodoPlanilla(anio, mes).habilitado) {
+    showToast("Este período no está habilitado para reapertura.", "error");
+    actualizarBotonesCierreMes();
+    return;
+  }
+  if (!obtenerEstadoCierreMes(anio, mes).cerrado) {
+    showToast("El período ya está abierto; no es necesario reabrirlo.", "info");
+    actualizarBotonesCierreMes();
+    return;
+  }
 
   if (!navigator.onLine) {
     showToast("Reabrir mes requiere conexión a internet.", "error");
@@ -1981,6 +1996,44 @@ function periodoAnterior(anio, mes) {
   };
 }
 
+function periodoSiguiente(anio, mes) {
+  const fecha = new Date(Number(anio), Number(mes), 1);
+  return {
+    anio: String(fecha.getFullYear()),
+    mes: String(fecha.getMonth() + 1).padStart(2, '0')
+  };
+}
+
+function obtenerEstadoCierreMes(anio, mes) {
+  const periodo = `${anio}-${String(mes).padStart(2, '0')}`;
+  const siguiente = periodoSiguiente(anio, mes);
+  const periodoSiguienteClave = `${siguiente.anio}-${siguiente.mes}`;
+  const claves = Object.keys(saldosHistoricos);
+  const tieneMarcaCierre = claves.some(clave => {
+    if (!clave.endsWith(`_${periodo}`)) return false;
+    return saldosHistoricos[clave]?.cerrado === true;
+  });
+  // Compatibilidad con cierres creados antes de incorporar el campo "cerrado".
+  const tieneAperturaSiguiente = claves.some(clave => clave.endsWith(`_${periodoSiguienteClave}`));
+  return {
+    cerrado: tieneMarcaCierre || tieneAperturaSiguiente,
+    periodo,
+    periodoSiguiente: periodoSiguienteClave
+  };
+}
+
+function actualizarBotonesCierreMes() {
+  const btnCerrar = document.getElementById('btn-cerrar-mes');
+  const btnReabrir = document.getElementById('btn-reabrir-mes');
+  if (!btnCerrar || !btnReabrir) return;
+
+  const periodoHabilitado = obtenerEstadoPeriodoPlanilla(periodoAdminAnio, periodoAdminMes).habilitado;
+  const { cerrado } = obtenerEstadoCierreMes(periodoAdminAnio, periodoAdminMes);
+  const mostrarAcciones = modoEdicion && periodoHabilitado;
+  btnCerrar.style.display = mostrarAcciones && !cerrado ? '' : 'none';
+  btnReabrir.style.display = mostrarAcciones && cerrado ? '' : 'none';
+}
+
 function obtenerEstadoPeriodoPlanilla(anio, mes) {
   const periodo = `${anio}-${String(mes).padStart(2, '0')}`;
   if (config.periodoInicial && periodo < config.periodoInicial) {
@@ -2014,6 +2067,7 @@ function renderPlanilla() {
   const tbody = document.getElementById('tbl-planilla-cuerpo');
   if (!tbody) return;
   tbody.innerHTML = '';
+  actualizarBotonesCierreMes();
 
   const estadoPeriodo = obtenerEstadoPeriodoPlanilla(anio, mes);
   if (!estadoPeriodo.habilitado) {
