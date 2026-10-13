@@ -3,10 +3,10 @@
 //  Scope: /socio/ (independiente del admin)
 // ============================================================
 
-const CACHE_NAME = 'covimt9-socio-v21-tesoreria-fecha-cierre';
+const CACHE_NAME = 'covimt9-socio-v22-tesoreria-periodo-vs-acumulada';
 const STATIC_ASSETS = [
   'socio.html',
-  'socio.js?v=20261012-21',
+  'socio.js?v=20261012-22',
   'manifest-socio.json',
   'firebaseConfig.js',
   'pinos.png',
