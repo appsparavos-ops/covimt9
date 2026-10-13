@@ -1118,21 +1118,36 @@ async function simularCierreMensual() {
   try {
     showToast("Calculando arrastres en Firebase...", "info");
     const periodoEsLicencia = esPeriodoLicencia(anio, mes);
+    const ultimoDiaMes = new Date(Number(anio), Number(mes), 0).getDate();
+    const fechaCierreContable = `${anio}-${String(mes).padStart(2, '0')}-${String(ultimoDiaMes).padStart(2, '0')}`;
+    const cerradoEn = new Date().toISOString();
     for (const s of socios) {
       const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
 
       const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
       const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
-      // Al comenzar este mes, lo marcado "A Tesorería" ya es exigible y se cobra,
-      // incluso si el mes es licencia. Sólo se pausa la deuda que estaba A Recuperar.
-      const tesoreriaTrasCobro = obtenerTesoreriaTotal(hist);
+      // Compatibilidad: cualquier pendiente heredado se imputa al período que se cierra.
+      const tesoreriaAntes = hist.tesoreriaAcumulada || 0;
+      const cobroPendienteHeredado = hist.tesoreriaPendiente || 0;
+      const tesoreriaAntesDelCierre = tesoreriaAntes + cobroPendienteHeredado;
+      const claveActual = `${s.id}_${anio}-${String(mes).padStart(2, '0')}`;
+      const claveSiguiente = `${s.id}_${sigAnioStr}-${sigMesStr}`;
+
       if (periodoEsLicencia) {
-        const claveSiguiente = `${s.id}_${sigAnioStr}-${sigMesStr}`;
+        const tesoreriaAcumuladaAlCierre = tesoreriaAntesDelCierre;
+        await db.collection('saldosHistoricos').doc(claveActual).set({
+          cerrado: true,
+          cerradoEn,
+          fechaCierreContable,
+          tesoreriaCobradaEnPeriodo: cobroPendienteHeredado,
+          tesoreriaPasadaEnCierre: 0,
+          tesoreriaAcumuladaAlCierre
+        }, { merge: true });
         await db.collection('saldosHistoricos').doc(claveSiguiente).set({
           deudaAnterior: hist.deudaAnterior || 0,       // A Recuperar: se saltea la licencia
           remanenteAnterior: hist.remanenteAnterior || 0,
-          tesoreriaAcumulada: tesoreriaTrasCobro,      // A Tesorería: se cobra este mes
+          tesoreriaAcumulada: tesoreriaAcumuladaAlCierre,
           tesoreriaPendiente: 0,
           recuperacionPausadaPorLicencia: true,
           periodoOrigen: `${anio}-${mes}`
@@ -1159,12 +1174,23 @@ async function simularCierreMensual() {
         }
       }
 
-      const claveSiguiente = `${s.id}_${sigAnioStr}-${sigMesStr}`;
+      // El pasaje ocurre contablemente en el último día del mes que se cierra.
+      const tesoreriaCobradaEnPeriodo = cobroPendienteHeredado + pasajeATesoreria;
+      const tesoreriaAcumuladaAlCierre = tesoreriaAntes + tesoreriaCobradaEnPeriodo;
+      await db.collection('saldosHistoricos').doc(claveActual).set({
+        cerrado: true,
+        cerradoEn,
+        fechaCierreContable,
+        tesoreriaCobradaEnPeriodo,
+        tesoreriaPasadaEnCierre: pasajeATesoreria,
+        tesoreriaAcumuladaAlCierre
+      }, { merge: true });
       await db.collection('saldosHistoricos').doc(claveSiguiente).set({
-        deudaAnterior: deudaFinal,                     // Déficit del mes: A Recuperar el próximo mes
+        deudaAnterior: deudaFinal,                     // Déficit propio del mes: A Recuperar siguiente
         remanenteAnterior: remanenteFinal,
-        tesoreriaAcumulada: tesoreriaTrasCobro,        // Cobrado durante el mes que se cierra
-        tesoreriaPendiente: pasajeATesoreria           // Vencido ahora: se cobra el próximo mes
+        tesoreriaAcumulada: tesoreriaAcumuladaAlCierre, // Ya incluye el pasaje del cierre actual
+        tesoreriaPendiente: 0,
+        periodoOrigen: `${anio}-${mes}`
       });
     }
     registrarLog("Cierre Mensual", `CIERRE DE PERÍODO: ${mes}/${anio}. Se generaron los saldos y arrastres para ${sigMesStr}/${sigAnioStr}.`);
@@ -1207,6 +1233,19 @@ async function reabrirMes() {
       const doc = await docRef.get();
       if (doc.exists) {
         await docRef.delete();
+      }
+      const claveActual = `${s.id}_${anio}-${String(mes).padStart(2, '0')}`;
+      const actualRef = db.collection('saldosHistoricos').doc(claveActual);
+      const actualDoc = await actualRef.get();
+      if (actualDoc.exists) {
+        await actualRef.set({
+          cerrado: firebase.firestore.FieldValue.delete(),
+          cerradoEn: firebase.firestore.FieldValue.delete(),
+          fechaCierreContable: firebase.firestore.FieldValue.delete(),
+          tesoreriaCobradaEnPeriodo: firebase.firestore.FieldValue.delete(),
+          tesoreriaPasadaEnCierre: firebase.firestore.FieldValue.delete(),
+          tesoreriaAcumuladaAlCierre: firebase.firestore.FieldValue.delete()
+        }, { merge: true });
       }
     }
     registrarLog("Reapertura Mes", `REAPERTURA - Se reabrió el período ${mes}/${anio}. Se eliminaron los arrastres previos para el mes siguiente.`);
@@ -1347,12 +1386,17 @@ function obtenerSaldoHistoricoAlMes(socioId, anio, mes) {
     deudaAnterior: Number(data.deudaAnterior) || 0,
     remanenteAnterior: Number(data.remanenteAnterior) || 0,
     tesoreriaAcumulada: Number(data.tesoreriaAcumulada) || 0,
-    // Importe vencido en el mes anterior que debe cobrarse en este mes.
-    tesoreriaPendiente: Number(data.tesoreriaPendiente) || 0
+    tesoreriaPendiente: Number(data.tesoreriaPendiente) || 0, // compatibilidad histórica
+    tesoreriaCobradaEnPeriodo: Number(data.tesoreriaCobradaEnPeriodo) || 0,
+    tesoreriaPasadaEnCierre: Number(data.tesoreriaPasadaEnCierre) || 0,
+    tesoreriaAcumuladaAlCierre: Number(data.tesoreriaAcumuladaAlCierre) || 0,
+    cerrado: data.cerrado === true,
+    fechaCierreContable: data.fechaCierreContable || ''
   };
 }
 
 function obtenerTesoreriaTotal(hist) {
+  if (hist.cerrado) return hist.tesoreriaAcumuladaAlCierre || 0;
   return (hist.tesoreriaAcumulada || 0) + (hist.tesoreriaPendiente || 0);
 }
 
@@ -2037,7 +2081,7 @@ function renderPlanilla() {
     let obs = [];
     if (periodoEsLicencia) obs.push("Licencia: se cobra Tesorería y se pausa A Recuperar");
     if (hist.tesoreriaPendiente > 0) obs.push(`A Tesorería este mes: ${formatHours(hist.tesoreriaPendiente)}`);
-    if (pasajeProyectadoTesoreria > 0) obs.push(`A Tesorería próximo mes: ${formatHours(pasajeProyectadoTesoreria)}`);
+    if (pasajeProyectadoTesoreria > 0) obs.push(`A Tesorería al cierre: ${formatHours(pasajeProyectadoTesoreria)}`);
     if (exonerado) {
       if (s.certificadoMedico) {
         obs.push("Exonerado por certificado médico");
@@ -2731,7 +2775,7 @@ function exportPlanillaCSV() {
   });
 
   let csvContent = "sep=,\n";
-  csvContent += "Socio,Nº Socio,Edad,Horas Objetivo,Horas Computables,Saldo del Mes,Deuda Anterior,Remanente Anterior,Comprometidas,Total Crédito,Remanente Final,Deuda Final,Tesorería Acumulada,A Tesorería Este Mes,Observaciones\n";
+  csvContent += "Socio,Nº Socio,Edad,Horas Objetivo,Horas Computables,Saldo del Mes,Deuda Anterior,Remanente Anterior,Comprometidas,Total Crédito,Remanente Final,Deuda Final,Tesorería Antes,A Tesorería al Cierre,Observaciones\n";
 
   sociosOrdenados.forEach(s => {
     const fechaNac = new Date(s.fechaNacimiento);
@@ -2770,7 +2814,7 @@ function exportPlanillaCSV() {
     let obs = [];
     if (periodoEsLicencia) obs.push("Licencia: se cobra Tesorería y se pausa A Recuperar");
     if (hist.tesoreriaPendiente > 0) obs.push(`A Tesorería este mes: ${formatHours(hist.tesoreriaPendiente)}`);
-    if (pasajeProyectadoTesoreria > 0) obs.push(`A Tesorería próximo mes: ${formatHours(pasajeProyectadoTesoreria)}`);
+    if (pasajeProyectadoTesoreria > 0) obs.push(`A Tesorería al cierre: ${formatHours(pasajeProyectadoTesoreria)}`);
     if (exonerado) {
       if (s.certificadoMedico) {
         obs.push("Exonerado por certificado médico");
@@ -2786,8 +2830,11 @@ function exportPlanillaCSV() {
     }
 
     const observacionesStr = obs.join("; ");
+    const aTesoreriaCierreCSV = hist.cerrado
+      ? hist.tesoreriaCobradaEnPeriodo
+      : pasajeProyectadoTesoreria;
 
-    csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${hist.tesoreriaAcumulada.toFixed(2)}","${hist.tesoreriaPendiente.toFixed(2)}","${observacionesStr}"\n`;
+    csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${hist.tesoreriaAcumulada.toFixed(2)}","${aTesoreriaCierreCSV.toFixed(2)}","${observacionesStr}"\n`;
   });
 
   // Crear blob y descargar
@@ -2867,13 +2914,16 @@ function exportPlanillaPDF() {
     const saldoDelMesRounded = Math.round(saldoDelMes);
     const saldoTot = Math.round(remanenteFinal - deudaFinal);
     const deudaAnteriorRounded = Math.round(hist.deudaAnterior);
-    const pasajeATesoreriaRounded = Math.round(pasajeATesoreriaCalculado);
+    const pasajeATesoreriaRounded = Math.round(hist.cerrado
+      ? hist.tesoreriaPasadaEnCierre
+      : pasajeATesoreriaCalculado);
     const deudaGeneradaEsteMesRounded = (saldoDelMesRounded < 0) ? Math.abs(saldoDelMesRounded) : 0;
 
     // Observaciones abreviadas para ahorrar espacio
     let obs = [];
     if (periodoEsLicencia) obs.push("Licencia: A Recuperar pasa al mes siguiente");
-    if (hist.tesoreriaPendiente > 0) obs.push(`Tesorería este mes: ${formatHours(Math.round(hist.tesoreriaPendiente))}`);
+    const cobradoEnPeriodo = hist.cerrado ? hist.tesoreriaCobradaEnPeriodo : hist.tesoreriaPendiente;
+    if (cobradoEnPeriodo > 0) obs.push(`Tesorería imputada al cierre: ${formatHours(Math.round(cobradoEnPeriodo))}`);
     if (exonerado) obs.push(s.certificadoMedico ? "Exon.Méd." : "Exon.Edad");
     if (!exonerado && comisionAsignada) obs.push(`Com: ${comisionAsignada.split(' ').pop()}`);
 
@@ -2985,8 +3035,12 @@ function exportReporteTesoreriaPDF() {
     const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mesNum);
     const aRecuperar = hist.deudaAnterior || 0;
     const cobradoAntes = hist.tesoreriaAcumulada || 0;
-    const cobradoEsteMes = hist.tesoreriaPendiente || 0;
-    const totalTesoreria = cobradoAntes + cobradoEsteMes;
+    const cobradoEsteMes = hist.cerrado
+      ? (hist.tesoreriaCobradaEnPeriodo || 0)
+      : (hist.tesoreriaPendiente || 0); // compatibilidad mientras el período sigue abierto
+    const totalTesoreria = hist.cerrado
+      ? (hist.tesoreriaAcumuladaAlCierre || 0)
+      : cobradoAntes + cobradoEsteMes;
 
     // Mostrar tanto socios con Tesorería como quienes conservan horas A Recuperar.
     if (aRecuperar <= 0 && totalTesoreria <= 0) return;
