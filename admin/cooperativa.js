@@ -6,6 +6,9 @@ let config = { objetivoHoras: 4, periodoInicial: '' };
 let saldosHistoricos = {};
 let objetivosMensuales = {}; // Objetivo global por período YYYY-MM
 let modoEdicion = false; // Variable para controlar el modo edición
+let socioAdminSeleccionadoId = null;
+let resultadosBusquedaSocioAdminIds = [];
+let altaSocioAdminAbierta = false;
 const fechaDispositivoAdmin = new Date();
 let periodoAdminAnio = String(fechaDispositivoAdmin.getFullYear());
 let periodoAdminMes = String(fechaDispositivoAdmin.getMonth() + 1).padStart(2, '0');
@@ -309,6 +312,20 @@ function resetFormularioSocio() {
   actualizarResumenSaldoPartida();
 }
 
+function mostrarSocioAdminTrasAlta(socioData) {
+  if (!socios.some(s => String(s.id) === String(socioData.id))) socios.push(socioData);
+  altaSocioAdminAbierta = false;
+  socioAdminSeleccionadoId = socioData.id;
+  resultadosBusquedaSocioAdminIds = [];
+  const input = document.getElementById('busqueda-socio-admin');
+  if (input) input.value = socioData.id;
+  const estado = document.getElementById('estado-busqueda-socio-admin');
+  if (estado) estado.textContent = `Socio ${socioData.id} registrado. Se muestra su tarjeta.`;
+  resetFormularioSocio();
+  actualizarVistaBusquedaSociosAdmin();
+  renderSociosList();
+}
+
 async function saveSocio() {
   const id = document.getElementById('socio-id').value.trim();
   const nombre = cleanText(document.getElementById('socio-nombre').value);
@@ -386,14 +403,12 @@ async function saveSocio() {
     if (!navigator.onLine) {
       OfflineSync.enqueue('socios', id, 'set', socioData);
       OfflineSync.enqueue('saldosHistoricos', claveSaldo, 'set', saldoData);
-      socios.push(socioData);
       saldosHistoricos[claveSaldo] = saldoData;
-      renderSociosList();
+      mostrarSocioAdminTrasAlta(socioData);
       renderDashboard();
       renderPlanilla();
       showToast("Socio y saldo de partida guardados offline. Se sincronizarán al tener conexión.", "info");
       registrarLog("Creación Socio (Offline)", `SOCIO TITULAR: ${nombre} (ID: ${id}). Saldo de partida ${saldoPartida} hs en ${periodoSaldoPartida}. Pendiente de sincronización.`);
-      resetFormularioSocio();
       return;
     }
 
@@ -402,9 +417,9 @@ async function saveSocio() {
     batch.set(db.collection('saldosHistoricos').doc(claveSaldo), saldoData);
     await batch.commit();
     const pinMsg = /^\d{4}$/.test(pin) ? `PIN: ${pin}` : 'PIN por defecto: 1234 (el socio puede cambiarlo desde su portal)';
+    mostrarSocioAdminTrasAlta(socioData);
     showToast(`Socio guardado con saldo de partida ${saldoPartida} hs en ${periodoSaldoPartida}. ${pinMsg}`, "success");
     registrarLog("Creación/Edición Socio", `SOCIO TITULAR: ${nombre} (ID: ${id}). Fecha de alta: ${fechaAlta}. Saldo de partida: ${saldoPartida} hs en ${periodoSaldoPartida}.`);
-    resetFormularioSocio();
   } catch (err) {
     showToast("Error al guardar socio: " + err.message, "error");
   }
@@ -917,11 +932,9 @@ function onToggleModoEdicion(checkbox) {
 }
 
 function applyModoEdicion() {
-  // Panel de registro de socios
-  const panelRegistro = document.getElementById('panel-registro-socio');
-  if (panelRegistro) {
-    panelRegistro.style.display = modoEdicion ? '' : 'none';
-  }
+  // El alta ya no se muestra automáticamente: sólo se abre tras una búsqueda sin resultados.
+  if (!modoEdicion) altaSocioAdminAbierta = false;
+  actualizarVistaBusquedaSociosAdmin();
   // Badge de indicador en la pestaña de socios
   const badge = document.getElementById('badge-modo-edicion');
   if (badge) {
@@ -1612,17 +1625,174 @@ function switchTab(tabId) {
 
 // --- RENDERS DE INTERFAZ ---
 
-function renderSociosList() {
-  const container = document.getElementById('listado-socios-container');
-  if (!container) return;
-  container.innerHTML = '';
+function normalizarBusquedaSocioAdmin(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
 
-  if (socios.length === 0) {
-    container.innerHTML = `<p class="text-center py-6 text-slate-400">Sin socios registrados.</p>`;
+function actualizarVistaBusquedaSociosAdmin() {
+  const panelRegistro = document.getElementById('panel-registro-socio');
+  const panelResultado = document.getElementById('panel-resultado-socios');
+  panelRegistro?.classList.toggle('hidden', !(modoEdicion && altaSocioAdminAbierta));
+  panelResultado?.classList.toggle('hidden', !socioAdminSeleccionadoId && resultadosBusquedaSocioAdminIds.length === 0);
+}
+
+function prepararBusquedaSocioAdmin() {
+  socioAdminSeleccionadoId = null;
+  resultadosBusquedaSocioAdminIds = [];
+  altaSocioAdminAbierta = false;
+  const estado = document.getElementById('estado-busqueda-socio-admin');
+  if (estado) estado.textContent = 'Presione Buscar o Enter para consultar el padrón.';
+  actualizarVistaBusquedaSociosAdmin();
+}
+
+function buscarSocioAdmin() {
+  const input = document.getElementById('busqueda-socio-admin');
+  const estado = document.getElementById('estado-busqueda-socio-admin');
+  const consultaOriginal = input?.value.trim() || '';
+  const consulta = normalizarBusquedaSocioAdmin(consultaOriginal);
+  if (!consulta) {
+    showToast('Ingrese un número de socio o nombre del titular.', 'info');
+    input?.focus();
     return;
   }
 
-  socios.forEach(s => {
+  const coincidencias = socios
+    .filter(s => normalizarBusquedaSocioAdmin(s.id).includes(consulta) || normalizarBusquedaSocioAdmin(s.nombre).includes(consulta))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const exactoId = coincidencias.find(s => normalizarBusquedaSocioAdmin(s.id) === consulta);
+  const exactosNombre = coincidencias.filter(s => normalizarBusquedaSocioAdmin(s.nombre) === consulta);
+
+  altaSocioAdminAbierta = false;
+  if (exactoId || exactosNombre.length === 1 || coincidencias.length === 1) {
+    const socio = exactoId || exactosNombre[0] || coincidencias[0];
+    socioAdminSeleccionadoId = socio.id;
+    resultadosBusquedaSocioAdminIds = [];
+    if (estado) estado.textContent = `Socio ${socio.id} encontrado. Se muestra únicamente su tarjeta.`;
+  } else if (coincidencias.length > 1) {
+    socioAdminSeleccionadoId = null;
+    resultadosBusquedaSocioAdminIds = coincidencias.map(s => s.id);
+    if (estado) estado.textContent = `${coincidencias.length} coincidencias. Seleccione el socio correcto.`;
+  } else {
+    socioAdminSeleccionadoId = null;
+    resultadosBusquedaSocioAdminIds = [];
+    if (!modoEdicion) {
+      if (estado) estado.textContent = 'No existe un socio coincidente. Active Modo Edición para registrar uno nuevo.';
+      actualizarVistaBusquedaSociosAdmin();
+      return;
+    }
+    abrirAltaSocioDesdeBusqueda(consultaOriginal);
+    return;
+  }
+
+  actualizarVistaBusquedaSociosAdmin();
+  renderSociosList();
+}
+
+function seleccionarSocioAdmin(socioId) {
+  const socio = socios.find(s => String(s.id) === String(socioId));
+  if (!socio) return;
+  socioAdminSeleccionadoId = socio.id;
+  resultadosBusquedaSocioAdminIds = [];
+  altaSocioAdminAbierta = false;
+  const estado = document.getElementById('estado-busqueda-socio-admin');
+  if (estado) estado.textContent = `Socio ${socio.id} seleccionado.`;
+  actualizarVistaBusquedaSociosAdmin();
+  renderSociosList();
+}
+
+function abrirAltaSocioDesdeBusqueda(consultaOriginal) {
+  altaSocioAdminAbierta = true;
+  socioAdminSeleccionadoId = null;
+  resultadosBusquedaSocioAdminIds = [];
+  resetFormularioSocio();
+  populateCommissionSelect('socio-comision');
+  const consulta = String(consultaOriginal || '').trim();
+  if (/^\d+$/.test(consulta)) {
+    document.getElementById('socio-id').value = consulta;
+  } else {
+    document.getElementById('socio-nombre').value = consulta.toUpperCase();
+  }
+  const estado = document.getElementById('estado-busqueda-socio-admin');
+  if (estado) estado.textContent = 'No se encontraron coincidencias. Complete los datos para registrar el nuevo socio.';
+  actualizarVistaBusquedaSociosAdmin();
+  document.getElementById(/^\d+$/.test(consulta) ? 'socio-nombre' : 'socio-id')?.focus();
+  lucide.createIcons();
+}
+
+function cancelarAltaSocioAdmin() {
+  altaSocioAdminAbierta = false;
+  resetFormularioSocio();
+  const estado = document.getElementById('estado-busqueda-socio-admin');
+  if (estado) estado.textContent = 'Alta cancelada. Realice una nueva búsqueda.';
+  actualizarVistaBusquedaSociosAdmin();
+  document.getElementById('busqueda-socio-admin')?.focus();
+}
+
+function limpiarBusquedaSocioAdmin() {
+  const input = document.getElementById('busqueda-socio-admin');
+  if (input) input.value = '';
+  socioAdminSeleccionadoId = null;
+  resultadosBusquedaSocioAdminIds = [];
+  altaSocioAdminAbierta = false;
+  resetFormularioSocio();
+  const estado = document.getElementById('estado-busqueda-socio-admin');
+  if (estado) estado.textContent = 'Ingrese un número o nombre. Sólo se mostrará el socio seleccionado.';
+  actualizarVistaBusquedaSociosAdmin();
+  renderSociosList();
+  input?.focus();
+}
+
+function renderSociosList() {
+  const container = document.getElementById('listado-socios-container');
+  const panel = document.getElementById('panel-resultado-socios');
+  const titulo = document.getElementById('titulo-resultado-socios');
+  if (!container) return;
+  container.innerHTML = '';
+  actualizarVistaBusquedaSociosAdmin();
+
+  // Estado inicial: no se crean ni muestran las 172 tarjetas.
+  if (!socioAdminSeleccionadoId && resultadosBusquedaSocioAdminIds.length === 0) return;
+
+  if (resultadosBusquedaSocioAdminIds.length > 1 && !socioAdminSeleccionadoId) {
+    if (titulo) titulo.innerHTML = '<i data-lucide="list-filter" class="w-5 h-5 text-brand-600"></i> Coincidencias encontradas';
+    resultadosBusquedaSocioAdminIds.forEach(id => {
+      const socio = socios.find(s => String(s.id) === String(id));
+      if (!socio) return;
+      const boton = document.createElement('button');
+      boton.type = 'button';
+      boton.className = 'w-full flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-brand-300 hover:bg-brand-50 text-left transition';
+      const identificador = document.createElement('span');
+      identificador.className = 'shrink-0 font-mono text-xs font-bold text-brand-700 bg-brand-100 px-2 py-1 rounded-lg';
+      identificador.textContent = socio.id;
+      const nombre = document.createElement('span');
+      nombre.className = 'font-semibold text-sm text-slate-800';
+      nombre.textContent = socio.nombre;
+      const accion = document.createElement('span');
+      accion.className = 'ml-auto text-xs text-slate-400';
+      accion.textContent = 'Abrir tarjeta';
+      boton.append(identificador, nombre, accion);
+      boton.addEventListener('click', () => seleccionarSocioAdmin(socio.id));
+      container.appendChild(boton);
+    });
+    panel?.classList.remove('hidden');
+    lucide.createIcons();
+    return;
+  }
+
+  const socioSeleccionado = socios.find(s => String(s.id) === String(socioAdminSeleccionadoId));
+  if (!socioSeleccionado) {
+    socioAdminSeleccionadoId = null;
+    actualizarVistaBusquedaSociosAdmin();
+    return;
+  }
+  if (titulo) titulo.innerHTML = '<i data-lucide="user-round-check" class="w-5 h-5 text-brand-600"></i> Socio encontrado';
+  panel?.classList.remove('hidden');
+
+  [socioSeleccionado].forEach(s => {
     const edad = calcularEdad(s.fechaNacimiento);
     const exoneradoNucleo = esNucleoExonerado(s);
     
