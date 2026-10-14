@@ -3,19 +3,20 @@
 //  Scope: /socio/ (independiente del admin)
 // ============================================================
 
-const CACHE_NAME = 'covimt9-socio-v25-carga-optimizada';
+const CACHE_NAME = 'covimt9-socio-v26-icono-cooperativo';
 const STATIC_ASSETS = [
   'socio.html',
   'socio.js?v=20261012-25',
   'socio.css?v=20261012-25',
   'icons-socio.js?v=20261012-25',
-  'manifest-socio.json',
+  'manifest-socio.json?v=20261014-26',
   'firebaseConfig.js',
-  'pinos.png',
-  'icons-socio/icon-192x192.png',
-  'icons-socio/icon-512x512.png',
-  'icons-socio/icon-maskable-512x512.png',
-  'icons-socio/apple-touch-icon.png',
+  'pinos.png?v=20261014-26',
+  'icons-socio/favicon.ico?v=20261014-26',
+  'icons-socio/icon-192x192.png?v=20261014-26',
+  'icons-socio/icon-512x512.png?v=20261014-26',
+  'icons-socio/icon-maskable-512x512.png?v=20261014-26',
+  'icons-socio/apple-touch-icon.png?v=20261014-26',
   // Firebase local (CSS e iconos propios ya están incluidos arriba)
   'vendor/firebase-app-compat-9.22.0.js',
   'vendor/firebase-auth-compat-9.22.0.js',

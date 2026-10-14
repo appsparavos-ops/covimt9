@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>COVIMT 9 Obra </title>
-  <link rel="icon" type="image/png" href="pinos.png">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico?v=20261014-25">
 
   <!-- PWA Meta Tags -->
   <meta name="theme-color" content="#065f46">
@@ -12,8 +12,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="COVIMT 9">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=20261014-25">
+  <link rel="manifest" href="manifest.json?v=20261014-25">
   <!-- Tailwind CSS local -->
   <script src="vendor/tailwindcss-3.4.17.js"></script>
   <!-- Fuente Outfit local -->
@@ -133,7 +133,7 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex items-center justify-between h-16">
           <div class="flex items-center gap-3">
-            <img id="logo-coop" src="pinos.png" alt="Logo COVIMT 9" class="h-10 w-10 object-contain">
+            <img id="logo-coop" src="pinos.png?v=20261014-25" alt="Logo COVIMT 9" class="h-10 w-10 object-contain">
             <div>
               <h1 class="text-lg font-bold tracking-tight leading-none">COVIMT 9 - Obra</h1>
             </div>
@@ -1128,7 +1128,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js?v=20261014-24')
+        navigator.serviceWorker.register('sw.js?v=20261014-25')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));

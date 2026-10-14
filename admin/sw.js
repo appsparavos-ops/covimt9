@@ -3,7 +3,7 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v24-acciones-socio-movil';
+const CACHE_NAME = 'covimt9-v25-identidad-institucional';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
@@ -11,12 +11,13 @@ const STATIC_ASSETS = [
   'cooperativa.js?v=20261014-24',
   'offlineSync.js?v=20261012-11',
   'firebaseConfig.js',
-  'pinos.png',
-  'manifest.json',
-  'icons/icon-192x192.png',
-  'icons/icon-512x512.png',
-  'icons/icon-maskable-512x512.png',
-  'icons/apple-touch-icon.png',
+  'pinos.png?v=20261014-25',
+  'manifest.json?v=20261014-25',
+  'icons/favicon.ico?v=20261014-25',
+  'icons/icon-192x192.png?v=20261014-25',
+  'icons/icon-512x512.png?v=20261014-25',
+  'icons/icon-maskable-512x512.png?v=20261014-25',
+  'icons/apple-touch-icon.png?v=20261014-25',
   // Librerías locales (sin dependencia de CDN)
   'vendor/tailwindcss-3.4.17.js',
   'vendor/lucide-0.468.0.min.js',
