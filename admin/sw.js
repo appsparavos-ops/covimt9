@@ -3,12 +3,12 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v21-cierre-inteligente';
+const CACHE_NAME = 'covimt9-v22-saldo-partida';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
   'bitacora.html',
-  'cooperativa.js?v=20261012-21',
+  'cooperativa.js?v=20261014-22',
   'offlineSync.js?v=20261012-11',
   'firebaseConfig.js',
   'pinos.png',

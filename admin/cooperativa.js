@@ -275,6 +275,40 @@ async function clearCloudDatabase() {
 }
 
 // --- ACCIONES ESCRITURA FIRESTORE ---
+function actualizarResumenSaldoPartida() {
+  const fechaAlta = document.getElementById('socio-alta')?.value || '';
+  const inputSaldo = document.getElementById('socio-saldo-partida');
+  const resumen = document.getElementById('socio-saldo-resumen');
+  if (!inputSaldo || !resumen) return;
+  const saldo = Number(inputSaldo.value || 0);
+  if (!fechaAlta || !/^\d{4}-\d{2}-\d{2}$/.test(fechaAlta)) {
+    resumen.textContent = 'Seleccione la fecha de alta para ver el período y el cálculo.';
+    return;
+  }
+  if (!Number.isFinite(saldo) || !Number.isInteger(saldo) || saldo % 4 !== 0) {
+    resumen.textContent = 'El saldo debe ser un entero múltiplo de 4.';
+    return;
+  }
+  const [anio, mes] = fechaAlta.substring(0, 7).split('-');
+  const objetivo = obtenerObjetivoHorasPeriodo(anio, mes);
+  const periodoTexto = `${MESES_ADMIN[Number(mes)]} ${anio}`;
+  if (saldo < 0) {
+    const deuda = Math.abs(saldo);
+    resumen.textContent = `${periodoTexto}: ${formatHours(objetivo)} de objetivo + ${formatHours(deuda)} A Recuperar = ${formatHours(objetivo + deuda)} comprometidas.`;
+  } else if (saldo > 0) {
+    resumen.textContent = `${periodoTexto}: ${formatHours(saldo)} de remanente a favor y objetivo de ${formatHours(objetivo)}.`;
+  } else {
+    resumen.textContent = `${periodoTexto}: sin saldo anterior; horas comprometidas iniciales ${formatHours(objetivo)}.`;
+  }
+}
+
+function resetFormularioSocio() {
+  document.getElementById('form-socio')?.reset();
+  const saldo = document.getElementById('socio-saldo-partida');
+  if (saldo) saldo.value = '0';
+  actualizarResumenSaldoPartida();
+}
+
 async function saveSocio() {
   const id = document.getElementById('socio-id').value.trim();
   const nombre = cleanText(document.getElementById('socio-nombre').value);
@@ -284,6 +318,27 @@ async function saveSocio() {
   const certificadoMedico = document.getElementById('socio-certificado-medico').checked;
   const autorizacionMenor = document.getElementById('socio-autorizacion-menor').checked;
   const pin = document.getElementById('socio-pin').value.trim();
+  const saldoPartida = Number(document.getElementById('socio-saldo-partida')?.value || 0);
+
+  if (!Number.isFinite(saldoPartida) || !Number.isInteger(saldoPartida) || saldoPartida % 4 !== 0 || Math.abs(saldoPartida) > 200) {
+    showToast("El saldo de partida debe ser un número entero múltiplo de 4, entre -200 y 200.", "error");
+    return;
+  }
+  if (!fechaAlta || !/^\d{4}-\d{2}-\d{2}$/.test(fechaAlta)) {
+    showToast("Ingrese una fecha de alta válida para determinar el período del saldo.", "error");
+    return;
+  }
+  const periodoSaldoPartida = fechaAlta.substring(0, 7);
+  const [anioSaldoPartida, mesSaldoPartida] = periodoSaldoPartida.split('-');
+  const estadoPeriodoSaldo = obtenerEstadoPeriodoPlanilla(anioSaldoPartida, mesSaldoPartida);
+  if (!estadoPeriodoSaldo.habilitado) {
+    showToast(`El período ${periodoSaldoPartida} no está habilitado. Revise la fecha de alta.`, "error");
+    return;
+  }
+  if (obtenerEstadoCierreMes(anioSaldoPartida, mesSaldoPartida).cerrado) {
+    showToast(`El período ${periodoSaldoPartida} está cerrado. Reábralo antes de registrar un saldo de partida allí.`, "error");
+    return;
+  }
 
   if (socios.some(s => s.id === id)) {
     showToast("ID de socio ya se encuentra registrado.", "error");
@@ -317,24 +372,39 @@ async function saveSocio() {
         hasta: null
       }]
     };
+    const saldoData = {
+      deudaAnterior: saldoPartida < 0 ? Math.abs(saldoPartida) : 0,
+      remanenteAnterior: saldoPartida > 0 ? saldoPartida : 0,
+      tesoreriaAcumulada: 0,
+      tesoreriaPendiente: 0,
+      cargaInicialManual: true,
+      fechaCarga: new Date().toISOString(),
+      periodoOrigen: periodoSaldoPartida
+    };
+    const claveSaldo = `${id}_${periodoSaldoPartida}`;
 
     if (!navigator.onLine) {
       OfflineSync.enqueue('socios', id, 'set', socioData);
+      OfflineSync.enqueue('saldosHistoricos', claveSaldo, 'set', saldoData);
       socios.push(socioData);
+      saldosHistoricos[claveSaldo] = saldoData;
       renderSociosList();
       renderDashboard();
       renderPlanilla();
-      showToast("Socio guardado offline. Se sincronizará al tener conexión.", "info");
-      registrarLog("Creación Socio (Offline)", `SOCIO TITULAR: ${nombre} (ID: ${id}). Pendiente de sincronización.`);
-      document.getElementById('form-socio').reset();
+      showToast("Socio y saldo de partida guardados offline. Se sincronizarán al tener conexión.", "info");
+      registrarLog("Creación Socio (Offline)", `SOCIO TITULAR: ${nombre} (ID: ${id}). Saldo de partida ${saldoPartida} hs en ${periodoSaldoPartida}. Pendiente de sincronización.`);
+      resetFormularioSocio();
       return;
     }
 
-    await db.collection('socios').doc(id).set(socioData);
+    const batch = db.batch();
+    batch.set(db.collection('socios').doc(id), socioData);
+    batch.set(db.collection('saldosHistoricos').doc(claveSaldo), saldoData);
+    await batch.commit();
     const pinMsg = /^\d{4}$/.test(pin) ? `PIN: ${pin}` : 'PIN por defecto: 1234 (el socio puede cambiarlo desde su portal)';
-    showToast(`Socio titular guardado. ${pinMsg}`, "success");
-    registrarLog("Creación/Edición Socio", `SOCIO TITULAR: ${nombre} (ID: ${id}). Fecha de alta: ${fechaAlta}.`);
-    document.getElementById('form-socio').reset();
+    showToast(`Socio guardado con saldo de partida ${saldoPartida} hs en ${periodoSaldoPartida}. ${pinMsg}`, "success");
+    registrarLog("Creación/Edición Socio", `SOCIO TITULAR: ${nombre} (ID: ${id}). Fecha de alta: ${fechaAlta}. Saldo de partida: ${saldoPartida} hs en ${periodoSaldoPartida}.`);
+    resetFormularioSocio();
   } catch (err) {
     showToast("Error al guardar socio: " + err.message, "error");
   }
@@ -812,6 +882,7 @@ async function saveConfig() {
       objetivosMensuales[periodo] = obj;
       renderDashboard();
       renderPlanilla();
+      actualizarResumenSaldoPartida();
       showToast(`Objetivo de ${MESES_ADMIN[Number(periodoAdminMes)]} ${periodoAdminAnio} guardado offline.`, 'info');
       registrarLog('Configuración (Offline)', `Objetivo ${periodo}: ${obj} hs. Modo Edición: ${modoEdicion}. Pendiente de sincronización.`);
       closeConfigModal();
@@ -824,6 +895,7 @@ async function saveConfig() {
     showToast(`Objetivo guardado para ${MESES_ADMIN[Number(periodoAdminMes)]} ${periodoAdminAnio}: ${obj} hs.`, 'success');
     renderDashboard();
     renderPlanilla();
+    actualizarResumenSaldoPartida();
     closeConfigModal();
   } catch (err) {
     showToast('Error al guardar configuración: ' + err.message, 'error');

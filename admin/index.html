@@ -35,7 +35,7 @@
   <!-- Módulo Offline Sync -->
   <script src="offlineSync.js?v=20261012-11"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
-  <script src="cooperativa.js?v=20261012-21" defer></script>
+  <script src="cooperativa.js?v=20261014-22" defer></script>
 
   <script>
     tailwind.config = {
@@ -356,7 +356,14 @@
               </div>
               <div>
                 <label for="socio-alta" class="block text-xs font-semibold text-slate-500 mb-1">Fecha de Alta en Sistema</label>
-                <input type="date" id="socio-alta" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                <input type="date" id="socio-alta" onchange="actualizarResumenSaldoPartida()" required class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+              </div>
+              <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <label for="socio-saldo-partida" class="block text-xs font-semibold text-amber-900 mb-1">Saldo de horas de partida</label>
+                <input type="number" id="socio-saldo-partida" value="0" step="4" min="-200" max="200" required oninput="actualizarResumenSaldoPartida()" class="w-full rounded-xl border border-amber-300 bg-white p-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 transition" placeholder="Ej. -4, 0 o 4">
+                <p class="text-[10px] text-amber-800 mt-1.5"><b>Negativo</b> = A Recuperar · <b>Positivo</b> = horas a favor · <b>0</b> = sin saldo.</p>
+                <p class="text-[10px] text-red-700 mt-1">Ingrese únicamente las horas todavía vigentes. Descuente antes las que ya pasaron a Tesorería: si el saldo era -8 y 4 pasaron a Tesorería, cargue -4; si las 4 pendientes ya pasaron, cargue 0.</p>
+                <div id="socio-saldo-resumen" class="mt-2 text-[10px] font-semibold text-slate-700">Seleccione la fecha de alta para ver el período y el cálculo.</div>
               </div>
               <div>
                 <label for="socio-nombre" class="block text-xs font-semibold text-slate-500 mb-1">Nombre del Titular</label>
@@ -1104,7 +1111,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js?v=20261012-21')
+        navigator.serviceWorker.register('sw.js?v=20261014-22')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));
