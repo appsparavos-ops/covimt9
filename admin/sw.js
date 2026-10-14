@@ -3,12 +3,12 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v23-buscador-socios';
+const CACHE_NAME = 'covimt9-v24-acciones-socio-movil';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
   'bitacora.html',
-  'cooperativa.js?v=20261014-23',
+  'cooperativa.js?v=20261014-24',
   'offlineSync.js?v=20261012-11',
   'firebaseConfig.js',
   'pinos.png',

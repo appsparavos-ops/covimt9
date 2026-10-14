@@ -1851,27 +1851,27 @@ function renderSociosList() {
     }
 
     const botonesAccionSocio = modoEdicion ? `
-      <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
-        <button onclick="openEditarSocioModal('${s.id}')" class="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
-          <i data-lucide="edit-3" class="w-3.5 h-3.5"></i> Editar
+      <div class="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 sm:flex sm:flex-wrap sm:justify-end">
+        <button onclick="openEditarSocioModal('${s.id}')" class="w-full min-w-0 px-1.5 py-2 sm:w-auto sm:px-3 sm:py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[10px] sm:text-xs font-semibold transition flex flex-col sm:flex-row items-center justify-center gap-1 leading-tight text-center">
+          <i data-lucide="edit-3" class="w-3.5 h-3.5 shrink-0"></i> Editar
         </button>
-        <button onclick="updateSocioComision('${s.id}')" class="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
-          <i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Comisión
+        <button onclick="updateSocioComision('${s.id}')" class="w-full min-w-0 px-1.5 py-2 sm:w-auto sm:px-3 sm:py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[10px] sm:text-xs font-semibold transition flex flex-col sm:flex-row items-center justify-center gap-1 leading-tight text-center">
+          <i data-lucide="badge-check" class="w-3.5 h-3.5 shrink-0"></i> Comisión
         </button>
-        <button onclick="openGestionEstadoModal('${s.id}', 'titular')" class="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
-          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Cambiar Titular
+        <button onclick="openGestionEstadoModal('${s.id}', 'titular')" class="w-full min-w-0 px-1.5 py-2 sm:w-auto sm:px-3 sm:py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-[10px] sm:text-xs font-semibold transition flex flex-col sm:flex-row items-center justify-center gap-1 leading-tight text-center">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0"></i> Cambiar Titular
         </button>
-        <button onclick="openCambiarPINModal('${s.id}')" class="px-3 py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 rounded-lg text-xs font-semibold transition flex items-center gap-1" title="Cambiar PIN de acceso al portal">
-          <i data-lucide="key-round" class="w-3.5 h-3.5"></i> PIN
+        <button onclick="openCambiarPINModal('${s.id}')" class="w-full min-w-0 px-1.5 py-2 sm:w-auto sm:px-3 sm:py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 rounded-lg text-[10px] sm:text-xs font-semibold transition flex flex-col sm:flex-row items-center justify-center gap-1 leading-tight text-center" title="Cambiar PIN de acceso al portal">
+          <i data-lucide="key-round" class="w-3.5 h-3.5 shrink-0"></i> PIN
         </button>
-        <button onclick="openNucleoModal('${s.id}')" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1">
-          <i data-lucide="plus" class="w-3.5 h-3.5"></i> Familiar
+        <button onclick="openNucleoModal('${s.id}')" class="w-full min-w-0 px-1.5 py-2 sm:w-auto sm:px-3 sm:py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-[10px] sm:text-xs font-semibold transition flex flex-col sm:flex-row items-center justify-center gap-1 leading-tight text-center">
+          <i data-lucide="plus" class="w-3.5 h-3.5 shrink-0"></i> Familiar
         </button>
-        <div class="flex gap-1 ml-auto">
-          <button onclick="openGestionEstadoModal('${s.id}', 'baja')" class="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
-            <i data-lucide="user-minus" class="w-3.5 h-3.5"></i> Baja
+        <div class="min-w-0 flex gap-1 sm:ml-auto">
+          <button onclick="openGestionEstadoModal('${s.id}', 'baja')" class="min-w-0 flex-1 px-1.5 py-2 sm:flex-none sm:px-3 sm:py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-[10px] sm:text-xs font-semibold transition flex flex-col sm:flex-row items-center justify-center gap-1 leading-tight text-center">
+            <i data-lucide="user-minus" class="w-3.5 h-3.5 shrink-0"></i> Baja
           </button>
-          <button onclick="deleteSocio('${s.id}')" class="px-2 py-1.5 text-slate-400 hover:text-red-600 transition" title="Eliminar definitivamente">
+          <button onclick="deleteSocio('${s.id}')" class="shrink-0 px-1 sm:px-2 py-1.5 text-slate-400 hover:text-red-600 transition" title="Eliminar definitivamente">
             <i data-lucide="trash-2" class="w-4 h-4"></i>
           </button>
         </div>

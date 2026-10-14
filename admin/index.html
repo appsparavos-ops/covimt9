@@ -35,7 +35,7 @@
   <!-- Módulo Offline Sync -->
   <script src="offlineSync.js?v=20261012-11"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
-  <script src="cooperativa.js?v=20261014-23" defer></script>
+  <script src="cooperativa.js?v=20261014-24" defer></script>
 
   <script>
     tailwind.config = {
@@ -1128,7 +1128,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js?v=20261014-23')
+        navigator.serviceWorker.register('sw.js?v=20261014-24')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));
