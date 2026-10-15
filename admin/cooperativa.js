@@ -2016,8 +2016,29 @@ function openTareasModal() {
   const input = document.getElementById('nuevas-tareas');
   if (input) input.value = '';
   const resumen = document.getElementById('resumen-catalogo-tareas');
-  const cantidad = obtenerTareasOrdenadas().length;
-  if (resumen) resumen.textContent = `${cantidad} tarea${cantidad === 1 ? '' : 's'} disponible${cantidad === 1 ? '' : 's'}. La más frecuente queda seleccionada por defecto.`;
+  const tareas = obtenerTareasOrdenadas();
+  if (resumen) {
+    resumen.innerHTML = '';
+    const titulo = document.createElement('p');
+    titulo.className = 'font-semibold text-slate-700';
+    titulo.textContent = `${tareas.length} tarea${tareas.length === 1 ? '' : 's'} disponible${tareas.length === 1 ? '' : 's'}. La más frecuente queda seleccionada por defecto.`;
+    resumen.appendChild(titulo);
+    if (tareas.length > 0) {
+      const lista = document.createElement('ol');
+      lista.className = 'mt-2 space-y-1 list-decimal list-inside text-slate-600';
+      tareas.forEach(tarea => {
+        const item = document.createElement('li');
+        item.textContent = tarea;
+        lista.appendChild(item);
+      });
+      resumen.appendChild(lista);
+    } else {
+      const vacio = document.createElement('p');
+      vacio.className = 'mt-2 italic text-slate-400';
+      vacio.textContent = 'Todavía no hay tareas. Agregue la primera en el campo superior.';
+      resumen.appendChild(vacio);
+    }
+  }
   document.getElementById('modal-tareas')?.classList.remove('hidden');
   lucide.createIcons();
   input?.focus();
