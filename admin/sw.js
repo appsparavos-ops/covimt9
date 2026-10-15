@@ -3,11 +3,12 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v32-pulsacion-papelera';
+const CACHE_NAME = 'covimt9-v33-bitacora-operativa';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
   'bitacora.html',
+  'bitacora.js?v=20261015-1',
   'cooperativa.js?v=20261015-32',
   'offlineSync.js?v=20261015-12',
   'firebaseConfig.js',
