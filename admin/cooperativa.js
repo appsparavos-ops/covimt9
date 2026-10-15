@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Asignar manejadores de eventos a los botones para evitar ReferenceError por 'defer'
   document.getElementById('btn-descargar-pdf')?.addEventListener('click', exportPlanillaPDF);
+  document.getElementById('btn-informe-mensual')?.addEventListener('click', openInformeMensualModal);
   document.getElementById('btn-reporte-tesoreria')?.addEventListener('click', exportReporteTesoreriaPDF);
   document.getElementById('btn-cerrar-mes')?.addEventListener('click', simularCierreMensual);
   document.getElementById('btn-reabrir-mes')?.addEventListener('click', reabrirMes);
@@ -955,6 +956,10 @@ function applyModoEdicion() {
   if (btnDescargarPDF) {
     btnDescargarPDF.style.display = modoEdicion ? '' : 'none';
   }
+  const btnInformeMensual = document.getElementById('btn-informe-mensual');
+  if (btnInformeMensual) {
+    btnInformeMensual.style.display = modoEdicion ? '' : 'none';
+  }
   const btnTesoreria = document.getElementById('btn-reporte-tesoreria');
   if (btnTesoreria) {
     btnTesoreria.style.display = modoEdicion ? '' : 'none';
@@ -967,6 +972,7 @@ function applyModoEdicion() {
   // Si se desactiva el modo edición con el modal abierto, cerrarlo
   if (!modoEdicion) {
     document.getElementById('modal-reporte-jornada')?.classList.add('hidden');
+    document.getElementById('modal-informe-mensual')?.classList.add('hidden');
   }
   // Botón de bitácora en la navegación superior
   const btnNavBitacora = document.getElementById('btn-nav-bitacora');
@@ -1357,42 +1363,48 @@ async function reabrirMes() {
 }
 
 // --- REGLAMENTO INTERNO (EDAD, EXONERACIONES, <4 HORAS) ---
-function calcularEdad(fechaNacStr) {
+function calcularEdad(fechaNacStr, fechaReferencia = new Date()) {
   if (!fechaNacStr) return 0;
-  const nacimiento = new Date(fechaNacStr);
-  const hoy = new Date();
-  let edad = hoy.getFullYear() - nacimiento.getFullYear();
-  const m = hoy.getMonth() - nacimiento.getMonth();
-  if (m < 0 || (m === 0 && hoy.getDate() < nacimiento.getDate())) {
+  const partesNacimiento = String(fechaNacStr).split('-').map(Number);
+  const nacimiento = partesNacimiento.length === 3 && partesNacimiento.every(Number.isFinite)
+    ? new Date(partesNacimiento[0], partesNacimiento[1] - 1, partesNacimiento[2], 12)
+    : new Date(fechaNacStr);
+  const referencia = fechaReferencia instanceof Date
+    ? fechaReferencia
+    : new Date(`${fechaReferencia}T12:00:00`);
+  let edad = referencia.getFullYear() - nacimiento.getFullYear();
+  const m = referencia.getMonth() - nacimiento.getMonth();
+  if (m < 0 || (m === 0 && referencia.getDate() < nacimiento.getDate())) {
     edad--;
   }
   return edad;
 }
 
-function esPersonaHabilitada(persona) {
-  const edad = calcularEdad(persona.fechaNacimiento);
+function esPersonaHabilitada(persona, fechaReferencia = new Date()) {
+  if (persona?.certificadoMedico) return false;
+  const edad = calcularEdad(persona.fechaNacimiento, fechaReferencia);
   if (edad < 16 || edad > 70) return false;
   // Menores de 18 (16-17 años) requieren autorización del responsable
   if (edad < 18 && !persona.autorizacionMenor) return false;
   return true;
 }
 
-function esNucleoExonerado(socio) {
+function esNucleoExonerado(socio, fechaReferencia = new Date()) {
   // Si el socio titular tiene certificado médico y no hay integrantes habilitados, está exonerado
-  if (socio.certificadoMedico && !esPersonaHabilitada(socio)) {
+  if (socio.certificadoMedico && !esPersonaHabilitada(socio, fechaReferencia)) {
     if (socio.nucleo) {
       for (const familiar of socio.nucleo) {
-        if (esPersonaHabilitada(familiar)) return false;
+        if (esPersonaHabilitada(familiar, fechaReferencia)) return false;
       }
     }
     return true;
   }
   
   // Lógica original: exonerado por edad
-  if (esPersonaHabilitada(socio)) return false;
+  if (esPersonaHabilitada(socio, fechaReferencia)) return false;
   if (socio.nucleo) {
     for (const familiar of socio.nucleo) {
-      if (esPersonaHabilitada(familiar)) return false;
+      if (esPersonaHabilitada(familiar, fechaReferencia)) return false;
     }
   }
   return true;
@@ -3297,6 +3309,249 @@ function exportPlanillaPDF() {
 
   doc.save(`COVIMT9_Estado_Horas_${mesNum}_${anio}.pdf`);
   showToast("Planilla PDF generada correctamente.", "success");
+}
+
+function openInformeMensualModal() {
+  if (!modoEdicion) return;
+  const anio = document.getElementById('planilla-anio')?.value || periodoAdminAnio;
+  const mes = document.getElementById('planilla-mes')?.value || periodoAdminMes;
+  if (!obtenerEstadoPeriodoPlanilla(anio, mes).habilitado) {
+    showToast('El período seleccionado todavía no está habilitado.', 'error');
+    return;
+  }
+  const periodo = document.getElementById('periodo-informe-mensual');
+  if (periodo) periodo.textContent = `${MESES_ADMIN[Number(mes)]} ${anio} · Elija cómo presentar las tareas.`;
+  document.querySelector('input[name="tipo-informe-mensual"][value="resumen-detalle"]')?.click();
+  document.getElementById('modal-informe-mensual')?.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeInformeMensualModal() {
+  document.getElementById('modal-informe-mensual')?.classList.add('hidden');
+}
+
+function generarInformeMensualDesdeModal() {
+  const tipo = document.querySelector('input[name="tipo-informe-mensual"]:checked')?.value || 'resumen-detalle';
+  generarInformeMensualPDF(tipo);
+  closeInformeMensualModal();
+}
+
+function formatearHorasInforme(valor) {
+  const numero = Number(valor) || 0;
+  const texto = Number.isInteger(numero) ? String(numero) : numero.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return `${texto} hs`;
+}
+
+function obtenerCondicionSocioInforme(socio, fechaReferencia) {
+  const comision = obtenerComisionAsignadaNucleo(socio);
+  if (comision) return { causa: 'En comisión', detalle: comision };
+  if (!esNucleoExonerado(socio, fechaReferencia)) return null;
+
+  const personas = [
+    { nombre: socio.nombre, certificadoMedico: socio.certificadoMedico },
+    ...(socio.nucleo || []).map(f => ({ nombre: f.nombre, certificadoMedico: f.certificadoMedico }))
+  ];
+  const certificados = personas.filter(p => p.certificadoMedico).map(p => p.nombre);
+  if (certificados.length > 0) {
+    return { causa: 'Certificado médico', detalle: certificados.join(', ') };
+  }
+  return { causa: 'Por edad', detalle: 'Núcleo sin integrantes habilitados por edad' };
+}
+
+function generarInformeMensualPDF(tipoDetalle = 'resumen-detalle') {
+  if (!modoEdicion) return;
+  const anio = document.getElementById('planilla-anio')?.value || periodoAdminAnio;
+  const mes = document.getElementById('planilla-mes')?.value || periodoAdminMes;
+  if (!obtenerEstadoPeriodoPlanilla(anio, mes).habilitado) {
+    showToast('El período seleccionado todavía no está habilitado.', 'error');
+    return;
+  }
+
+  const ultimoDia = new Date(Number(anio), Number(mes), 0).getDate();
+  const fechaCorte = `${anio}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
+  const sociosActivos = socios.map(original => {
+    const snapshot = getSocioSnapshot(original, fechaCorte);
+    return snapshot ? { ...original, ...snapshot, id: original.id, nucleo: original.nucleo || [] } : null;
+  }).filter(Boolean);
+
+  // Una sola causa por socio: Comisión → Certificado médico → Edad.
+  const condiciones = sociosActivos.map(socio => {
+    const condicion = obtenerCondicionSocioInforme(socio, fechaCorte);
+    return condicion ? { socio, ...condicion } : null;
+  }).filter(Boolean).sort((a, b) =>
+    a.causa.localeCompare(b.causa) || String(a.socio.id).localeCompare(String(b.socio.id), undefined, { numeric: true })
+  );
+
+  const registrosMes = registros.filter(r =>
+    r.estado === 'finalizado' && String(r.fecha || '').startsWith(`${anio}-${String(mes).padStart(2, '0')}`)
+  );
+  const sociosConActividad = new Set();
+  const trabajadoresConActividad = new Set();
+  const diasConActividad = new Set();
+  const tareas = new Map();
+  const tareasPorDia = new Map();
+  let horasTotales = 0;
+
+  registrosMes.forEach(r => {
+    const horas = getRoundedHours(r.horaIngreso, r.horaSalida);
+    const tarea = cleanText(r.tarea || '') || 'SIN TAREA ESPECIFICADA';
+    const trabajador = cleanText(r.trabajadorNombre || '') || 'SIN NOMBRE';
+    const socioId = String(r.socioId || '');
+    const trabajadorKey = `${socioId}|${trabajador}`;
+    const fecha = String(r.fecha || '');
+    horasTotales += horas;
+    sociosConActividad.add(socioId);
+    trabajadoresConActividad.add(trabajadorKey);
+    diasConActividad.add(fecha);
+
+    if (!tareas.has(tarea)) tareas.set(tarea, { tarea, dias: new Set(), trabajadores: new Set(), socios: new Set(), horas: 0 });
+    const resumen = tareas.get(tarea);
+    resumen.dias.add(fecha);
+    resumen.trabajadores.add(trabajadorKey);
+    resumen.socios.add(socioId);
+    resumen.horas += horas;
+
+    const claveDia = `${fecha}|${tarea}`;
+    if (!tareasPorDia.has(claveDia)) tareasPorDia.set(claveDia, { fecha, tarea, trabajadores: new Map(), socios: new Set(), horas: 0 });
+    const detalle = tareasPorDia.get(claveDia);
+    detalle.trabajadores.set(trabajadorKey, trabajador);
+    detalle.socios.add(socioId);
+    detalle.horas += horas;
+  });
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const logo = document.getElementById('logo-coop');
+  const mesNombre = MESES_ADMIN[Number(mes)];
+  const etiquetaDetalle = tipoDetalle === 'por-tarea' ? 'Sólo por tarea' : tipoDetalle === 'por-dia' ? 'Sólo por día' : 'Resumen y detalle';
+
+  const dibujarEncabezado = () => {
+    if (logo && logo.complete && logo.naturalWidth !== 0) {
+      try { doc.addImage(logo, 'PNG', 14, 7, 12, 12); } catch (e) { console.error(e); }
+    }
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(5, 95, 70);
+    doc.text('COVIMT 9 · Informe mensual de actividad', 30, 13);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(70);
+    doc.text(`${mesNombre} ${anio}`, 30, 18);
+    doc.setDrawColor(210);
+    doc.line(14, 22, 196, 22);
+  };
+  dibujarEncabezado();
+
+  const opcionesTabla = {
+    theme: 'grid',
+    styles: { fontSize: 8, cellPadding: 1.6, valign: 'middle', overflow: 'linebreak' },
+    headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' },
+    margin: { top: 27, right: 14, bottom: 15, left: 14 },
+    didDrawPage: dibujarEncabezado
+  };
+  let cursorY = 29;
+  const tituloSeccion = titulo => {
+    if (cursorY > 267) {
+      doc.addPage();
+      dibujarEncabezado();
+      cursorY = 29;
+    }
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text(titulo, 14, cursorY);
+    cursorY += 3;
+  };
+  const crearTabla = (head, body, extra = {}) => {
+    doc.autoTable({ ...opcionesTabla, head: [head], body, startY: cursorY, ...extra });
+    cursorY = doc.lastAutoTable.finalY + 8;
+  };
+
+  tituloSeccion('1. Resumen general');
+  crearTabla(
+    ['Socios activos', 'Con condición', 'Horas computadas', 'Socios que trabajaron', 'Trabajadores', 'Días con actividad'],
+    [[
+      sociosActivos.length,
+      condiciones.length,
+      formatearHorasInforme(horasTotales),
+      sociosConActividad.size,
+      trabajadoresConActividad.size,
+      diasConActividad.size
+    ]],
+    { styles: { ...opcionesTabla.styles, halign: 'center' } }
+  );
+
+  const causas = ['En comisión', 'Certificado médico', 'Por edad'];
+  tituloSeccion('2. Socios con objetivo cubierto o exonerados');
+  crearTabla(
+    ['Causa', 'Cantidad de socios'],
+    causas.map(causa => [causa, condiciones.filter(c => c.causa === causa).length]),
+    { columnStyles: { 1: { halign: 'center', cellWidth: 38 } } }
+  );
+  crearTabla(
+    ['Nº socio', 'Titular', 'Causa', 'Detalle'],
+    condiciones.length > 0
+      ? condiciones.map(c => [c.socio.id, c.socio.nombre, c.causa, c.detalle])
+      : [['-', 'Sin socios en estas condiciones', '-', '-']],
+    { columnStyles: { 0: { cellWidth: 18, halign: 'center' }, 2: { cellWidth: 34 }, 3: { cellWidth: 55 } } }
+  );
+
+  tituloSeccion('3. Actividad realizada');
+  crearTabla(
+    ['Horas computadas', 'Socios', 'Trabajadores', 'Tareas', 'Días'],
+    [[formatearHorasInforme(horasTotales), sociosConActividad.size, trabajadoresConActividad.size, tareas.size, diasConActividad.size]],
+    { styles: { ...opcionesTabla.styles, halign: 'center' } }
+  );
+
+  const resumenTareas = [...tareas.values()].sort((a, b) => a.tarea.localeCompare(b.tarea));
+  const detalleDiario = [...tareasPorDia.values()].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.tarea.localeCompare(b.tarea));
+
+  if (tipoDetalle !== 'por-dia') {
+    tituloSeccion('4. Resumen por tarea');
+    crearTabla(
+      ['Tarea', 'Días realizados', 'Socios', 'Trabajadores', 'Horas'],
+      resumenTareas.length > 0
+        ? resumenTareas.map(t => [
+            t.tarea,
+            [...t.dias].sort().map(formatDateString).join(', '),
+            t.socios.size,
+            t.trabajadores.size,
+            formatearHorasInforme(t.horas)
+          ])
+        : [['Sin actividad registrada', '-', 0, 0, formatearHorasInforme(0)]],
+      { columnStyles: { 0: { cellWidth: 55 }, 1: { cellWidth: 65 }, 2: { halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'center' } } }
+    );
+  }
+
+  if (tipoDetalle !== 'por-tarea') {
+    tituloSeccion(tipoDetalle === 'por-dia' ? '4. Detalle por tarea y día' : '5. Detalle por tarea y día');
+    crearTabla(
+      ['Fecha', 'Tarea', 'Trabajadores', 'Socios', 'Horas'],
+      detalleDiario.length > 0
+        ? detalleDiario.map(d => [
+            formatDateString(d.fecha),
+            d.tarea,
+            `${d.trabajadores.size}: ${[...d.trabajadores.values()].sort().join(', ')}`,
+            d.socios.size,
+            formatearHorasInforme(d.horas)
+          ])
+        : [['-', 'Sin actividad registrada', '-', 0, formatearHorasInforme(0)]],
+      { columnStyles: { 0: { cellWidth: 22, halign: 'center' }, 1: { cellWidth: 48 }, 2: { cellWidth: 72 }, 3: { halign: 'center' }, 4: { halign: 'center' } } }
+    );
+  }
+
+  const paginas = doc.internal.getNumberOfPages();
+  for (let pagina = 1; pagina <= paginas; pagina++) {
+    doc.setPage(pagina);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(110);
+    doc.text(`Detalle: ${etiquetaDetalle}`, 14, 291);
+    doc.text(`Página ${pagina} de ${paginas}`, 196, 291, { align: 'right' });
+  }
+
+  doc.save(`COVIMT9_Informe_Mensual_${mes}_${anio}.pdf`);
+  showToast('Informe mensual generado correctamente.', 'success');
 }
 
 /**

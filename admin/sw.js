@@ -3,12 +3,12 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v26-horarios-pdf-redondeados';
+const CACHE_NAME = 'covimt9-v27-informe-mensual';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
   'bitacora.html',
-  'cooperativa.js?v=20261015-26',
+  'cooperativa.js?v=20261015-27',
   'offlineSync.js?v=20261012-11',
   'firebaseConfig.js',
   'pinos.png?v=20261014-25',

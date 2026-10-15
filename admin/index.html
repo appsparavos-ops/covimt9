@@ -35,7 +35,7 @@
   <!-- Módulo Offline Sync -->
   <script src="offlineSync.js?v=20261012-11"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
-  <script src="cooperativa.js?v=20261015-26" defer></script>
+  <script src="cooperativa.js?v=20261015-27" defer></script>
 
   <script>
     tailwind.config = {
@@ -562,7 +562,10 @@
                 <i data-lucide="download" class="w-3.5 h-3.5"></i> CSV
               </button>
               <button id="btn-descargar-pdf" class="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
-                <i data-lucide="file-text" class="w-3.5 h-3.5"></i> Generar PDF
+                <i data-lucide="file-text" class="w-3.5 h-3.5"></i> Descargar Planilla Mensual
+              </button>
+              <button id="btn-informe-mensual" class="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5" title="Informe mensual de exoneraciones, horas y tareas">
+                <i data-lucide="file-chart-column" class="w-3.5 h-3.5"></i> Informe
               </button>
               <button id="btn-reporte-tesoreria" class="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5" title="Generar informe de horas no recuperadas que pasan a tesorería">
                 <i data-lucide="landmark" class="w-3.5 h-3.5"></i> Reporte Tesorería
@@ -682,6 +685,44 @@
             <button type="button" onclick="closeReporteJornadaModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium hover:bg-slate-50 transition">Cancelar</button>
             <button type="submit" class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2">
               <i data-lucide="file-down" class="w-4 h-4"></i> Generar PDF
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal de opciones del informe mensual de actividad -->
+    <div id="modal-informe-mensual" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-informe-mensual">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100">
+        <div class="bg-blue-700 text-white p-4 flex items-center justify-between">
+          <h3 id="titulo-modal-informe-mensual" class="font-bold flex items-center gap-2">
+            <i data-lucide="file-chart-column" class="w-5 h-5 text-blue-200"></i> Informe mensual
+          </h3>
+          <button type="button" onclick="closeInformeMensualModal()" class="text-white/80 hover:text-white transition" aria-label="Cerrar">
+            <i data-lucide="x" class="w-6 h-6"></i>
+          </button>
+        </div>
+        <form onsubmit="event.preventDefault(); generarInformeMensualDesdeModal();" class="p-6 space-y-4">
+          <div>
+            <p class="text-sm font-semibold text-slate-800">Detalle de tareas</p>
+            <p id="periodo-informe-mensual" class="text-xs text-slate-500 mt-1">Se utilizará el período seleccionado en Planilla Mensual.</p>
+          </div>
+          <label class="flex items-start gap-3 p-3 rounded-xl border border-blue-200 bg-blue-50 cursor-pointer">
+            <input type="radio" name="tipo-informe-mensual" value="resumen-detalle" checked class="mt-1 accent-blue-600">
+            <span><b class="text-sm text-slate-800">Resumen y detalle</b><span class="block text-xs text-slate-500 mt-0.5">Totales por tarea y desglose por tarea y día.</span></span>
+          </label>
+          <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+            <input type="radio" name="tipo-informe-mensual" value="por-tarea" class="mt-1 accent-blue-600">
+            <span><b class="text-sm text-slate-800">Sólo por tarea</b><span class="block text-xs text-slate-500 mt-0.5">Una fila por tarea, con días, trabajadores, socios y horas.</span></span>
+          </label>
+          <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+            <input type="radio" name="tipo-informe-mensual" value="por-dia" class="mt-1 accent-blue-600">
+            <span><b class="text-sm text-slate-800">Sólo por día</b><span class="block text-xs text-slate-500 mt-0.5">Una fila por fecha y tarea, con trabajadores, socios y horas.</span></span>
+          </label>
+          <div class="pt-2 flex justify-end gap-3">
+            <button type="button" onclick="closeInformeMensualModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium hover:bg-slate-50 transition">Cancelar</button>
+            <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2">
+              <i data-lucide="file-down" class="w-4 h-4"></i> Generar informe
             </button>
           </div>
         </form>
@@ -1128,7 +1169,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js?v=20261015-26')
+        navigator.serviceWorker.register('sw.js?v=20261015-27')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));
