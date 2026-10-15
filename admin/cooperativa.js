@@ -3647,8 +3647,10 @@ function descargarPDFJornada(recordId) {
   doc.setFont(undefined, 'normal');
   doc.text(`Persona que trabajó: ${reg.trabajadorNombre}`, 25, 83);
   doc.text(`Fecha: ${formatDateString(reg.fecha)}`, 25, 91);
-  doc.text(`Hora Entrada: ${reg.horaIngreso} Hs`, 25, 99);
-  doc.text(`Hora Salida: ${reg.horaSalida} Hs`, 25, 107);
+  // Los comprobantes nunca exponen la hora real: aplican la misma regla de
+  // redondeo usada por la planilla diaria de Jornada.
+  doc.text(`Hora Entrada: ${redondearHoraParaPlanilla(reg.horaIngreso)} Hs`, 25, 99);
+  doc.text(`Hora Salida: ${redondearHoraParaPlanilla(reg.horaSalida)} Hs`, 25, 107);
   doc.text(`Total Horas Realizadas: ${getRoundedHours(reg.horaIngreso, reg.horaSalida).toFixed(2)} Hs`, 25, 115);
   doc.text(`Tarea Realizada: ${reg.tarea}`, 25, 123);
 
