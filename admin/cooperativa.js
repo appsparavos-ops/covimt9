@@ -2222,22 +2222,68 @@ function renderJornadasActivas() {
         <div class="flex items-center gap-2">
           <span class="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider">En obra</span>
         </div>
-        <h4 class="text-sm font-bold text-slate-800 mt-1">${act.trabajadorNombre}</h4>
+        <div class="flex items-center gap-2 mt-1">
+          <button type="button" data-eliminar-ingreso="${act.id}" onpointerdown="iniciarPulsacionEliminarIngreso(event, '${act.id}')" onpointermove="moverPulsacionEliminarIngreso(event)" onpointerup="cancelarPulsacionEliminarIngreso(event)" onpointercancel="cancelarPulsacionEliminarIngreso(event)" onlostpointercapture="cancelarPulsacionEliminarIngreso(event)" onclick="event.preventDefault()" oncontextmenu="event.preventDefault()" class="shrink-0 w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-transform flex items-center justify-center select-none touch-none" title="Mantenga presionada la papelera para quitar el fichaje" aria-label="Mantener presionada para eliminar el fichaje de ${act.trabajadorNombre}">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5 pointer-events-none"></i>
+          </button>
+          <h4 class="text-sm font-bold text-slate-800">${act.trabajadorNombre}</h4>
+        </div>
         <p class="text-xs text-slate-500 mt-0.5">Ingresó: ${formatDateString(act.fecha)} a las ${act.horaIngreso} hs</p>
         <p class="text-xs italic text-slate-400 mt-1">Tarea: ${act.tarea}</p>
       </div>
-      <div class="w-full sm:w-auto flex gap-2">
-        <button onclick="eliminarIngresoActivo('${act.id}')" class="flex-1 sm:flex-none px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1" title="Eliminar este fichaje de ingreso">
-          <i data-lucide="user-x" class="w-4 h-4"></i> Quitar
-        </button>
-        <button onclick="openEgresoModal('${act.id}')" class="flex-1 sm:flex-none px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1">
-          <i data-lucide="log-out" class="w-4 h-4"></i> Registrar Salida
-        </button>
-      </div>
+      <button onclick="openEgresoModal('${act.id}')" class="w-full sm:w-auto px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1">
+        <i data-lucide="log-out" class="w-4 h-4"></i> Registrar Salida
+      </button>
     `;
     container.appendChild(card);
   });
   lucide.createIcons();
+}
+
+let pulsacionEliminarIngreso = null;
+const DURACION_PULSACION_ELIMINAR_MS = 800;
+
+function iniciarPulsacionEliminarIngreso(event, registroId) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  event.preventDefault();
+  cancelarPulsacionEliminarIngreso();
+  const boton = event.currentTarget;
+  try { boton.setPointerCapture(event.pointerId); } catch (_) {}
+  boton.classList.add('ring-2', 'ring-red-400', 'scale-110', 'bg-red-100');
+  const estado = {
+    registroId,
+    boton,
+    pointerId: event.pointerId,
+    inicioX: event.clientX,
+    inicioY: event.clientY,
+    temporizador: null
+  };
+  estado.temporizador = setTimeout(() => {
+    if (pulsacionEliminarIngreso !== estado) return;
+    pulsacionEliminarIngreso = null;
+    boton.classList.remove('ring-2', 'ring-red-400', 'scale-110', 'bg-red-100');
+    try { boton.releasePointerCapture(estado.pointerId); } catch (_) {}
+    if (navigator.vibrate) navigator.vibrate(35);
+    eliminarIngresoActivo(registroId);
+  }, DURACION_PULSACION_ELIMINAR_MS);
+  pulsacionEliminarIngreso = estado;
+}
+
+function moverPulsacionEliminarIngreso(event) {
+  const estado = pulsacionEliminarIngreso;
+  if (!estado || estado.pointerId !== event.pointerId) return;
+  if (Math.hypot(event.clientX - estado.inicioX, event.clientY - estado.inicioY) > 12) {
+    cancelarPulsacionEliminarIngreso(event);
+  }
+}
+
+function cancelarPulsacionEliminarIngreso(event) {
+  const estado = pulsacionEliminarIngreso;
+  if (!estado || (event && event.pointerId !== undefined && estado.pointerId !== event.pointerId)) return;
+  pulsacionEliminarIngreso = null;
+  clearTimeout(estado.temporizador);
+  estado.boton.classList.remove('ring-2', 'ring-red-400', 'scale-110', 'bg-red-100');
+  try { estado.boton.releasePointerCapture(estado.pointerId); } catch (_) {}
 }
 
 async function eliminarIngresoActivo(registroId) {
