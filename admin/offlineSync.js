@@ -171,6 +171,7 @@ const OfflineSync = (() => {
         dbRef.collection('objetivosMensuales').get(),
         dbRef.collection('comisiones').get(),
         dbRef.collection('config').doc('metaGlobal').get(),
+        dbRef.collection('config').doc('catalogoTareas').get(),
       ]);
       localStorage.setItem('covimt9_lastPrecarga', new Date().toISOString());
       console.log('[OfflineSync] Precarga completada.');

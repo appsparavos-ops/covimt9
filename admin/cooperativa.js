@@ -5,6 +5,7 @@ let registros = [];
 let config = { objetivoHoras: 4, periodoInicial: '' };
 let saldosHistoricos = {};
 let objetivosMensuales = {}; // Objetivo global por período YYYY-MM
+let catalogoTareas = []; // Tareas agregadas por usuarios; se combinan con el historial.
 let modoEdicion = false; // Variable para controlar el modo edición
 let socioAdminSeleccionadoId = null;
 let resultadosBusquedaSocioAdminIds = [];
@@ -200,6 +201,7 @@ function startFirestoreSync() {
     renderDashboard();
     renderPlanilla();
     renderHistorialTable();
+    actualizarAsignacionesTareasIngreso();
   }, (error) => {
     showToast("Error al sincronizar jornadas: " + error.message, "error");
   });
@@ -250,6 +252,15 @@ function startFirestoreSync() {
     renderComisionesManagement(); // Para actualizar la lista en el modal de configuración
   }, (error) => {
     showToast("Error al sincronizar comisiones: " + error.message, "error");
+  });
+
+  // 7. Catálogo global de tareas, editable por cualquier usuario administrativo.
+  db.collection('config').doc('catalogoTareas').onSnapshot((doc) => {
+    const tareas = doc.exists && Array.isArray(doc.data().tareas) ? doc.data().tareas : [];
+    catalogoTareas = normalizarListaTareas(tareas);
+    actualizarAsignacionesTareasIngreso();
+  }, (error) => {
+    showToast("Error al sincronizar el catálogo de tareas: " + error.message, "error");
   });
 }
 
@@ -681,14 +692,22 @@ async function registerIngreso() {
   const fecha = document.getElementById('ingreso-fecha').value;
   const responsable = document.getElementById('ingreso-responsable').value.trim();
   const horaIngresoRaw = document.getElementById('ingreso-hora').value;
-  const tarea = document.getElementById('ingreso-tarea').value.trim();
 
-  // Leer todos los checkboxes marcados
+  // Leer trabajadores y la tarea elegida individualmente para cada uno.
   const checkboxes = document.querySelectorAll('.ingreso-trabajador-cb:checked');
   const trabajadores = Array.from(checkboxes).map(cb => cb.value);
+  const asignaciones = new Map();
+  document.querySelectorAll('.ingreso-tarea-select').forEach(select => {
+    if (select.dataset.trabajador && select.value) asignaciones.set(select.dataset.trabajador, select.value);
+  });
 
   if (trabajadores.length === 0) {
     showToast("Seleccione al menos un integrante habilitado.", "error");
+    return;
+  }
+  const sinTarea = trabajadores.filter(trabajador => !asignaciones.get(trabajador));
+  if (sinTarea.length > 0) {
+    showToast(`Asigne una tarea a: ${sinTarea.join(', ')}.`, "error");
     return;
   }
 
@@ -718,7 +737,7 @@ async function registerIngreso() {
         horaIngreso,
         horaSalida: '',
         horasTrabajadas: 0,
-        tarea,
+        tarea: asignaciones.get(trabajadorNombre),
         firma: '',
         estado: 'activo'
       };
@@ -1919,6 +1938,131 @@ function renderSociosList() {
   lucide.createIcons();
 }
 
+function claveNormalizadaTarea(tarea) {
+  return String(tarea || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleUpperCase('es-UY').trim();
+}
+
+function normalizarListaTareas(tareas = []) {
+  const unicas = new Map();
+  tareas.forEach(tarea => {
+    const nombre = String(tarea || '').replace(/\s+/g, ' ').trim().toLocaleUpperCase('es-UY');
+    const clave = claveNormalizadaTarea(nombre);
+    if (clave && !unicas.has(clave)) unicas.set(clave, nombre);
+  });
+  return [...unicas.values()];
+}
+
+function obtenerTareasOrdenadas() {
+  const frecuencias = new Map();
+  registros.forEach(registro => {
+    const tarea = normalizarListaTareas([registro.tarea])[0];
+    const clave = claveNormalizadaTarea(tarea);
+    if (clave) frecuencias.set(clave, (frecuencias.get(clave) || 0) + 1);
+  });
+  const tareasHistoricas = normalizarListaTareas(registros.map(registro => registro.tarea));
+  const todas = normalizarListaTareas([...catalogoTareas, ...tareasHistoricas]);
+  return todas.sort((a, b) =>
+    (frecuencias.get(claveNormalizadaTarea(b)) || 0) - (frecuencias.get(claveNormalizadaTarea(a)) || 0) || a.localeCompare(b, 'es')
+  );
+}
+
+function actualizarAsignacionesTareasIngreso() {
+  const container = document.getElementById('ingreso-asignaciones-tareas');
+  if (!container) return;
+  const valoresPrevios = new Map();
+  container.querySelectorAll?.('.ingreso-tarea-select').forEach(select => {
+    valoresPrevios.set(select.dataset.trabajador, select.value);
+  });
+  const seleccionados = [...document.querySelectorAll('.ingreso-trabajador-cb:checked')];
+  container.innerHTML = '';
+  if (seleccionados.length === 0) {
+    container.innerHTML = '<p class="text-xs text-slate-400 text-center py-2">Seleccione uno o más trabajadores para asignar tareas.</p>';
+    return;
+  }
+
+  const tareas = obtenerTareasOrdenadas();
+  seleccionados.forEach(checkbox => {
+    const trabajador = checkbox.value;
+    const fila = document.createElement('div');
+    fila.className = 'grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-2 items-center p-2.5 bg-white rounded-lg border border-slate-200';
+    const nombre = document.createElement('div');
+    nombre.className = 'text-xs font-semibold text-slate-700 truncate';
+    nombre.textContent = trabajador;
+    const select = document.createElement('select');
+    select.className = 'ingreso-tarea-select w-full rounded-lg border border-slate-200 p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500';
+    select.dataset.trabajador = trabajador;
+    select.required = true;
+    if (tareas.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'Agregue una tarea con +';
+      select.appendChild(option);
+    } else {
+      tareas.forEach(tarea => {
+        const option = document.createElement('option');
+        option.value = tarea;
+        option.textContent = tarea;
+        select.appendChild(option);
+      });
+      const anterior = valoresPrevios.get(trabajador);
+      if (anterior && tareas.includes(anterior)) select.value = anterior;
+    }
+    fila.append(nombre, select);
+    container.appendChild(fila);
+  });
+}
+
+function openTareasModal() {
+  const input = document.getElementById('nuevas-tareas');
+  if (input) input.value = '';
+  const resumen = document.getElementById('resumen-catalogo-tareas');
+  const cantidad = obtenerTareasOrdenadas().length;
+  if (resumen) resumen.textContent = `${cantidad} tarea${cantidad === 1 ? '' : 's'} disponible${cantidad === 1 ? '' : 's'}. La más frecuente queda seleccionada por defecto.`;
+  document.getElementById('modal-tareas')?.classList.remove('hidden');
+  lucide.createIcons();
+  input?.focus();
+}
+
+function closeTareasModal() {
+  document.getElementById('modal-tareas')?.classList.add('hidden');
+}
+
+async function guardarNuevasTareas() {
+  const input = document.getElementById('nuevas-tareas');
+  const nuevas = normalizarListaTareas(String(input?.value || '').split(/[,\n]+/));
+  if (nuevas.length === 0) {
+    showToast('Escriba al menos una tarea.', 'error');
+    return;
+  }
+  const anterior = [...catalogoTareas];
+  const combinadas = normalizarListaTareas([...catalogoTareas, ...nuevas]);
+  const agregadas = combinadas.filter(tarea => !catalogoTareas.includes(tarea));
+  if (agregadas.length === 0) {
+    showToast('Las tareas ingresadas ya existen.', 'info');
+    return;
+  }
+
+  const data = { tareas: combinadas, actualizadoEn: new Date().toISOString() };
+  catalogoTareas = combinadas;
+  actualizarAsignacionesTareasIngreso();
+  closeTareasModal();
+  try {
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('config', 'catalogoTareas', 'set', data);
+      showToast(`${agregadas.length} tarea(s) agregada(s) offline.`, 'info');
+      registrarLog('Catálogo de tareas (Offline)', `Se agregaron: ${agregadas.join(', ')}. Pendiente de sincronización.`);
+      return;
+    }
+    await db.collection('config').doc('catalogoTareas').set(data);
+    showToast(`${agregadas.length} tarea(s) agregada(s) al catálogo.`, 'success');
+    registrarLog('Catálogo de tareas', `Se agregaron: ${agregadas.join(', ')}.`);
+  } catch (error) {
+    catalogoTareas = anterior;
+    actualizarAsignacionesTareasIngreso();
+    showToast('Error al guardar tareas: ' + error.message, 'error');
+  }
+}
+
 function setupAsistenciaForms() {
   const filterInput = document.getElementById('filter-socio-id');
   const socioSelectFiltered = document.getElementById('ingreso-socio-filtered');
@@ -1980,6 +2124,7 @@ function updateIngresoTrabajadores() {
   const socio = socios.find(s => s.id === socioId);
   if (!socio) {
     container.innerHTML = '<p class="text-xs text-slate-400 text-center py-2">Seleccione un socio primero</p>';
+    actualizarAsignacionesTareasIngreso();
     return;
   }
 
@@ -2022,6 +2167,10 @@ function updateIngresoTrabajadores() {
   if (checkboxesAgregados === 0) {
     container.innerHTML = '<p class="text-xs text-red-500 text-center py-2">Sin integrantes habilitados para trabajar</p>';
   }
+  container.onchange = event => {
+    if (event.target.classList.contains('ingreso-trabajador-cb')) actualizarAsignacionesTareasIngreso();
+  };
+  actualizarAsignacionesTareasIngreso();
 }
 
 function renderJornadasActivas() {
@@ -3394,7 +3543,7 @@ function generarInformeMensualPDF(tipoDetalle = 'resumen-detalle') {
 
   registrosMes.forEach(r => {
     const horas = getRoundedHours(r.horaIngreso, r.horaSalida);
-    const tarea = cleanText(r.tarea || '') || 'SIN TAREA ESPECIFICADA';
+    const tarea = normalizarListaTareas([r.tarea])[0] || 'SIN TAREA ESPECIFICADA';
     const trabajador = cleanText(r.trabajadorNombre || '') || 'SIN NOMBRE';
     const socioId = String(r.socioId || '');
     const trabajadorKey = `${socioId}|${trabajador}`;

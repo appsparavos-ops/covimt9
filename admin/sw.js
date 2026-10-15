@@ -3,13 +3,13 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v27-informe-mensual';
+const CACHE_NAME = 'covimt9-v28-tareas-por-trabajador';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
   'bitacora.html',
-  'cooperativa.js?v=20261015-27',
-  'offlineSync.js?v=20261012-11',
+  'cooperativa.js?v=20261015-28',
+  'offlineSync.js?v=20261015-12',
   'firebaseConfig.js',
   'pinos.png?v=20261014-25',
   'manifest.json?v=20261014-25',
