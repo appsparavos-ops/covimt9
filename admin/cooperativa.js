@@ -2226,13 +2226,58 @@ function renderJornadasActivas() {
         <p class="text-xs text-slate-500 mt-0.5">Ingresó: ${formatDateString(act.fecha)} a las ${act.horaIngreso} hs</p>
         <p class="text-xs italic text-slate-400 mt-1">Tarea: ${act.tarea}</p>
       </div>
-      <button onclick="openEgresoModal('${act.id}')" class="w-full sm:w-auto px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1">
-        <i data-lucide="log-out" class="w-4 h-4"></i> Registrar Salida
-      </button>
+      <div class="w-full sm:w-auto flex gap-2">
+        <button onclick="eliminarIngresoActivo('${act.id}')" class="flex-1 sm:flex-none px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1" title="Eliminar este fichaje de ingreso">
+          <i data-lucide="user-x" class="w-4 h-4"></i> Quitar
+        </button>
+        <button onclick="openEgresoModal('${act.id}')" class="flex-1 sm:flex-none px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1">
+          <i data-lucide="log-out" class="w-4 h-4"></i> Registrar Salida
+        </button>
+      </div>
     `;
     container.appendChild(card);
   });
   lucide.createIcons();
+}
+
+async function eliminarIngresoActivo(registroId) {
+  const registro = registros.find(r => r.id === registroId);
+  if (!registro || registro.estado !== 'activo') {
+    showToast('El fichaje ya no está activo o no existe.', 'error');
+    renderJornadasActivas();
+    return;
+  }
+
+  const confirmado = await showConfirmModal(
+    'Quitar trabajador de la jornada',
+    `¿Confirma quitar a ${registro.trabajadorNombre} de la jornada del ${formatDateString(registro.fecha)}? El ingreso se eliminará por completo, como si nunca se hubiera fichado.`
+  );
+  if (!confirmado) return;
+
+  try {
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('registros', registroId, 'delete', null);
+      registros = registros.filter(r => r.id !== registroId);
+      renderJornadasActivas();
+      renderDashboard();
+      renderPlanilla();
+      renderHistorialTable();
+      showToast('Trabajador quitado de la jornada offline. Se sincronizará al recuperar conexión.', 'info');
+      registrarLog('Eliminación de fichaje activo (Offline)', `Se quitó a ${registro.trabajadorNombre} (Socio: ${registro.socioId}) de la jornada ${registro.fecha}. Pendiente de sincronización.`);
+      return;
+    }
+
+    await db.collection('registros').doc(registroId).delete();
+    registros = registros.filter(r => r.id !== registroId);
+    renderJornadasActivas();
+    renderDashboard();
+    renderPlanilla();
+    renderHistorialTable();
+    showToast('Trabajador quitado de la jornada. El fichaje fue eliminado.', 'success');
+    registrarLog('Eliminación de fichaje activo', `Se quitó a ${registro.trabajadorNombre} (Socio: ${registro.socioId}) de la jornada ${registro.fecha}.`);
+  } catch (error) {
+    showToast('Error al quitar el trabajador de la jornada: ' + error.message, 'error');
+  }
 }
 
 // --- CANVAS DE FIRMAS ---
