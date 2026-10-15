@@ -3,11 +3,13 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v33-bitacora-operativa';
+const CACHE_NAME = 'covimt9-v34-bitacora-css-estatico';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
+  'admin.css?v=20261015-1',
   'bitacora.html',
+  'bitacora.css?v=20261015-1',
   'bitacora.js?v=20261015-1',
   'cooperativa.js?v=20261015-32',
   'offlineSync.js?v=20261015-12',
@@ -20,7 +22,6 @@ const STATIC_ASSETS = [
   'icons/icon-maskable-512x512.png?v=20261014-25',
   'icons/apple-touch-icon.png?v=20261014-25',
   // Librerías locales (sin dependencia de CDN)
-  'vendor/tailwindcss-3.4.17.js',
   'vendor/lucide-0.468.0.min.js',
   'vendor/firebase-app-compat-9.22.0.js',
   'vendor/firebase-auth-compat-9.22.0.js',

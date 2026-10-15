@@ -8,13 +8,14 @@
 
   <!-- PWA Meta Tags (misma app que index.html) -->
   <meta name="theme-color" content="#065f46">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="COVIMT 9">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=20261014-25">
   <link rel="manifest" href="manifest.json">
 
-  <script src="vendor/tailwindcss-3.4.17.js"></script>
+  <link href="bitacora.css?v=20261015-1" rel="stylesheet">
   <link href="vendor/fonts/outfit.css" rel="stylesheet">
   <script src="vendor/lucide-0.468.0.min.js"></script>
   <script src="vendor/firebase-app-compat-9.22.0.js"></script>
@@ -27,9 +28,6 @@
 
   <script src="firebaseConfig.js"></script>
   <script src="bitacora.js?v=20261015-1" defer></script>
-  <script>
-    tailwind.config = { theme: { extend: { fontFamily: { sans: ['Outfit', 'sans-serif'] }, colors: { brand: { 50: '#f0fdf4', 100: '#dcfce7', 600: '#059669', 700: '#047857', 800: '#065f46' } } } } }
-  </script>
 </head>
 <body class="h-full flex flex-col font-sans antialiased text-slate-800 bg-slate-50/50">
   <!-- Toast Container -->
