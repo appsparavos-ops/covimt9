@@ -784,31 +784,8 @@ async function submitEgresoWithSignature() {
     const calculated = getRoundedHours(reg.horaIngreso, horaSalida);
     
     if (calculated === 0) {
-      if (await showConfirmModal("Jornada de 0.00 hs", "Esta jornada no alcanzó el mínimo computable de 1:45h. ¿Deseas ELIMINAR el ingreso? Si cancelas, la jornada seguirá activa para completar más horas.")) {
-        try {
-          registrarLog("Eliminación Ingreso", `CANCELACIÓN - Jornada ID: ${id} de ${reg.trabajadorNombre} (Socio: ${reg.socioId}) eliminada por tiempo insuficiente (0.00 hs).`);
-          
-          if (!navigator.onLine) {
-            OfflineSync.enqueue('registros', id, 'delete', null);
-            registros = registros.filter(r => r.id !== id);
-            renderJornadasActivas();
-            renderDashboard();
-            renderHistorialTable();
-            showToast("Jornada eliminada (offline).", "info");
-            closeEgresoModal();
-            return;
-          }
-          
-          await db.collection('registros').doc(id).delete();
-          showToast("Jornada eliminada.", "info");
-          closeEgresoModal();
-        } catch (err) {
-          showToast("Error al eliminar: " + err.message, "error");
-        }
-      } else {
-        closeEgresoModal();
-        showToast("Jornada mantenida en curso.", "info");
-      }
+      closeEgresoModal();
+      showToast("Esta salida no genera horas computables. Si el ingreso fue un error, mantenga presionada la papelera junto al nombre del trabajador para eliminarlo.", "info");
       return;
     }
 
@@ -2349,7 +2326,10 @@ function openEgresoModal(registroId) {
 
 function getRoundedHours(horaIngreso, horaSalida) {
   let calculated = calculateHours(horaIngreso, horaSalida);
-  if (calculated <= 0) return 0;
+  // Si la entrada fue redondeada hacia la hora siguiente y se registra una
+  // salida inmediata, la resta puede aparentar casi 24 horas. Una jornada de
+  // más de 16 horas se considera inválida y no se computa.
+  if (calculated <= 0 || calculated > 16) return 0;
 
   const minutosTrabajados = calculated * 60;
   if (minutosTrabajados < 105) return 0;
@@ -2369,7 +2349,15 @@ function updateRoundedHoursDisplay() {
   const lbl = document.getElementById('lbl-egreso-horas-calculadas');
   if (reg && horaSalida && lbl) {
     const rounded = getRoundedHours(reg.horaIngreso, horaSalida);
-    lbl.textContent = `${rounded.toFixed(2)} hs`;
+    if (rounded === 0) {
+      lbl.textContent = '0.00 hs · use la papelera';
+      lbl.classList.remove('text-brand-800');
+      lbl.classList.add('text-red-600');
+    } else {
+      lbl.textContent = `${rounded.toFixed(2)} hs`;
+      lbl.classList.remove('text-red-600');
+      lbl.classList.add('text-brand-800');
+    }
   }
 }
 
