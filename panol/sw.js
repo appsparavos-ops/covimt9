@@ -31,11 +31,12 @@ const STATIC_ASSETS = [
   // Manifiesto propio de la Etapa 2 (debe coincidir con el ?v= del <link rel="manifest">)
   'manifest.json?v=20261016-1',
   'pinos.png?v=20261014-25',
-  'icons/favicon.ico?v=20261014-25',
-  'icons/icon-192x192.png?v=20261014-25',
-  'icons/icon-512x512.png?v=20261014-25',
-  'icons/icon-maskable-512x512.png?v=20261014-25',
-  'icons/apple-touch-icon.png?v=20261014-25',
+  'icons/favicon.ico?v=20261016-2',
+  'icons/icon-192x192.png?v=20261016-2',
+  'icons/icon-512x512.png?v=20261016-2',
+  'icons/icon-maskable-512x512.png?v=20261016-2',
+  'icons/icon-maskable-192x192.png?v=20261016-2',
+  'icons/apple-touch-icon.png?v=20261016-2',
   // Librerías locales (sin dependencia de CDN)
   'vendor/lucide-0.468.0.min.js',
   'vendor/firebase-app-compat-9.22.0.js',
