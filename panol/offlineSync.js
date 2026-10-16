@@ -4,7 +4,9 @@
 // ============================================================
 
 const OfflineSync = (() => {
-  const QUEUE_KEY = 'covimt9_offline_queue';
+  // Clave propia de la Etapa 2: no compartir la cola de sincronización con la app admin,
+  // que vive en el mismo origen y usa 'covimt9_offline_queue'.
+  const QUEUE_KEY = 'covimt9-panol_offline_queue';
   let _syncing = false;
   let _onSyncComplete = null; // callback tras sync exitoso
 
@@ -181,7 +183,7 @@ const OfflineSync = (() => {
         dbRef.collection('config').doc('metaGlobal').get(),
         dbRef.collection('config').doc('catalogoTareas').get(),
       ]);
-      localStorage.setItem('covimt9_lastPrecarga', new Date().toISOString());
+      localStorage.setItem('covimt9-panol_lastPrecarga', new Date().toISOString());
       console.log('[OfflineSync] Precarga completada.');
     } catch (e) {
       console.warn('[OfflineSync] Error en precarga (puede ser normal si falta alguna colección):', e.message);

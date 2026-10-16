@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>COVIMT 9 Obra </title>
+  <title>COVIMT 9 Obra — Etapa 2</title>
   <link rel="icon" type="image/x-icon" href="icons/favicon.ico?v=20261014-25">
 
   <!-- PWA Meta Tags -->
   <meta name="theme-color" content="#065f46">
-  <meta name="description" content="Sistema de control de horas y asistencia para la Cooperativa de Vivienda COVIMT 9">
+  <meta name="description" content="Segunda etapa (Panol): control de horas, asistencia, inventario de máquinas y bitácora para la Cooperativa de Vivienda COVIMT 9">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="COVIMT 9">
+  <meta name="apple-mobile-web-app-title" content="COVIMT 9 E2">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=20261014-25">
-  <link rel="manifest" href="manifest.json?v=20261014-25">
+  <link rel="manifest" href="manifest.json?v=20261016-1">
   <!-- CSS precompilado para producción: no ejecuta Tailwind en el navegador -->
   <link href="admin.css?v=20261015-1" rel="stylesheet">
   <link href="maquinas.css?v=20261015-5" rel="stylesheet">
@@ -34,7 +34,7 @@
   <!-- Importar Configuración -->
   <script src="firebaseConfig.js"></script>
   <!-- Módulo Offline Sync -->
-  <script src="offlineSync.js?v=20261015-13"></script>
+  <script src="offlineSync.js?v=20261016-1"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
   <script src="cooperativa.js?v=20261015-37" defer></script>
   <script src="maquinas.js?v=20261015-5" defer></script>
@@ -70,7 +70,7 @@
         <div class="bg-brand-50 text-brand-700 p-4 rounded-2xl w-fit mx-auto shadow-inner">
           <i data-lucide="shield-check" class="w-10 h-10"></i>
         </div>
-        <h2 class="text-2xl font-bold tracking-tight text-slate-900">COVIMT 9 Obra</h2>
+        <h2 class="text-2xl font-bold tracking-tight text-slate-900">COVIMT 9 Obra · Etapa 2</h2>
         <p class="text-xs text-slate-500">Ingresa tus credenciales del portal cooperativo</p>
       </div>
 
@@ -114,7 +114,7 @@
           <div class="flex items-center gap-3">
             <img id="logo-coop" src="pinos.png?v=20261014-25" alt="Logo COVIMT 9" class="h-10 w-10 object-contain">
             <div>
-              <h1 class="text-lg font-bold tracking-tight leading-none">COVIMT 9 - Obra</h1>
+              <h1 class="text-lg font-bold tracking-tight leading-none">COVIMT 9 - Obra · Etapa 2</h1>
             </div>
           </div>
           
@@ -1423,7 +1423,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js?v=20261015-40')
+        navigator.serviceWorker.register('sw.js?v=20261016-1')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));

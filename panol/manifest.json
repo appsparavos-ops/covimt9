@@ -1,16 +1,17 @@
 {
-  "name": "COVIMT 9 - Control de Obra con pañol",
-  "short_name": "COVIMT 9 con pañol",
-  "id": "covimt9-pañol",
-  "description": "Sistema de control de horas y asistencia para la Cooperativa de Vivienda COVIMT 9",
-  "start_url": "index.html",
-  "scope": ".",
+  "name": "COVIMT 9 Obra — Etapa 2",
+  "short_name": "COVIMT 9 E2",
+  "id": "./",
+  "description": "Segunda etapa (Panol): control de horas, asistencia, inventario de máquinas y bitácora para la Cooperativa de Vivienda COVIMT 9",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#f8fafc",
   "theme_color": "#065f46",
   "lang": "es-UY",
   "categories": ["productivity", "business"],
+  "screenshots": [],
   "icons": [
     {
       "src": "icons/icon-72x72.png?v=20261014-25",
@@ -61,7 +62,6 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [],
   "shortcuts": [
     {
       "name": "Control de Jornada",

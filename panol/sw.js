@@ -3,9 +3,21 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-panol-v1';
+// IMPORTANTE: este prefijo es 'covimt9-panol-' y no 'covimt9-' a secas.
+// Los dos clientes (admin/ y panol/) comparten el MISMO origen y el Cache Storage
+// es comun a todo el origen: si los dos SW se limpian por prefijo 'covimt9-',
+// el que se activa borra la cache del otro y le rompe el modo offline.
+const APP_NAMESPACE = 'covimt9-panol-';
+const CACHE_NAME = APP_NAMESPACE + 'v41-instalacion-independiente';
+
+// Caches que esta app creo con nombres antiguos (prefijo compartido). Se listan
+// una por una, a proposito: asi podemos borrar las nuestras sin tocar nunca la
+// 'covimt9-v35-...' que pertenece al cliente admin/.
+const LEGACY_OWN_CACHES = [
+  'covimt9-v40-sets',
+];
 const STATIC_ASSETS = [
-  // Pañol App
+  // Admin App
   'index.html',
   'admin.css?v=20261015-1',
   'maquinas.css?v=20261015-5',
@@ -14,10 +26,11 @@ const STATIC_ASSETS = [
   'bitacora.js?v=20261015-1',
   'cooperativa.js?v=20261015-37',
   'maquinas.js?v=20261015-5',
-  'offlineSync.js?v=20261015-13',
+  'offlineSync.js?v=20261016-1',
   'firebaseConfig.js',
+  // Manifiesto propio de la Etapa 2 (debe coincidir con el ?v= del <link rel="manifest">)
+  'manifest.json?v=20261016-1',
   'pinos.png?v=20261014-25',
-  'manifest.json?v=20261014-25',
   'icons/favicon.ico?v=20261014-25',
   'icons/icon-192x192.png?v=20261014-25',
   'icons/icon-512x512.png?v=20261014-25',
@@ -68,7 +81,8 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name.startsWith('covimt9-') && !name.startsWith('covimt9-socio-') && name !== CACHE_NAME)
+          // Solo caches de ESTE cliente. Nunca tocar las de admin/ ni las de la app de socios.
+          .filter((name) => name !== CACHE_NAME && (name.startsWith(APP_NAMESPACE) || LEGACY_OWN_CACHES.includes(name)))
           .map((name) => {
             console.log('[SW] Deleting old cache:', name);
             return caches.delete(name);
