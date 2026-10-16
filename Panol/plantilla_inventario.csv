@@ -1,0 +1,4 @@
+codigo;nombre;tipo;control;cantidad;marca;modelo;numero_serie;destino_permitido;estado;ubicacion;observaciones
+MAQ-001;Bordeadora;MAQUINA;UNIDAD;1;;;SERIE-001;OBRA;DISPONIBLE;Pañol;
+HER-001;Escobilla;HERRAMIENTA;CANTIDAD;10;;;;AMBOS;DISPONIBLE;Pañol;
+HER-002;Soplador;HERRAMIENTA;UNIDAD;1;;;SERIE-002;OBRA;DISPONIBLE;Pañol;
