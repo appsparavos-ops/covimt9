@@ -1,6 +1,6 @@
 {
-  "name": "COVIMT 9 - Control de Obra",
-  "short_name": "COVIMT 9",
+  "name": "COVIMT 9 - Control de Obra con Pañol",
+  "short_name": "COVIMT 9 con Pañol",
   "id": "covimt9-admin",
   "description": "Sistema de control de horas y asistencia para la Cooperativa de Vivienda COVIMT 9",
   "start_url": "index.html",
