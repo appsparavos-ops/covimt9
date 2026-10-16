@@ -3,9 +3,9 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v40-sets';
+const CACHE_NAME = 'covimt9-panol-v1';
 const STATIC_ASSETS = [
-  // Admin App
+  // Pañol App
   'index.html',
   'admin.css?v=20261015-1',
   'maquinas.css?v=20261015-5',
