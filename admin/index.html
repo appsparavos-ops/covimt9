@@ -35,7 +35,7 @@
   <!-- Módulo Offline Sync -->
   <script src="offlineSync.js?v=20261015-12"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
-  <script src="cooperativa.js?v=20261017-3" defer></script>
+  <script src="cooperativa.js?v=20261017-5" defer></script>
 
   <style>
     .tab-content {
@@ -1012,6 +1012,36 @@
               <p class="text-[10px] text-slate-400 mt-1">El cambio se guarda sólo para este mes y no modifica períodos anteriores.</p>
             </div>
 
+            <div class="border-t border-slate-100 pt-4">
+                            <h4 class="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
+                              <i data-lucide="key-round" class="w-4 h-4 text-emerald-600"></i> PIN para firmar sin conexión
+                            </h4>
+                            <p class="text-[11px] text-slate-500 mb-3">Definilo acá, con conexión, antes de la primera jornada. El PIN queda guardado sólo en este dispositivo y es lo que habilita a firmar el cierre de jornada cuando no hay señal.</p>
+                            <div id="pin-cfg-estado" class="text-[11px] rounded-xl border p-3 mb-3 bg-slate-50 border-slate-200 text-slate-600">Comprobando este dispositivo...</div>
+                            <p class="text-xs font-semibold text-slate-500 mb-1">Cuenta que va a firmar: <span id="pin-cfg-cuenta" class="text-slate-700">—</span></p>
+                            <div class="space-y-3">
+                              <div>
+                                <label for="pin-cfg-clave" class="block text-xs font-semibold text-slate-500 mb-1">Contraseña de tu cuenta</label>
+                                <input type="password" id="pin-cfg-clave" autocomplete="current-password" placeholder="Se verifica en Firebase y no se guarda" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                              </div>
+                              <div class="flex gap-2">
+                                <div class="flex-1">
+                                  <label for="pin-cfg-pin" class="block text-xs font-semibold text-slate-500 mb-1">PIN nuevo (4 a 8 dígitos)</label>
+                                  <input type="password" id="pin-cfg-pin" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="••••" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                                </div>
+                                <div class="flex-1">
+                                  <label for="pin-cfg-pin2" class="block text-xs font-semibold text-slate-500 mb-1">Repetir PIN</label>
+                                  <input type="password" id="pin-cfg-pin2" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="••••" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                                </div>
+                              </div>
+                              <p id="msg-pin-cfg" class="text-[11px] text-slate-500">Se guarda sólo si la contraseña verifica contra Firebase. Después sirve para firmar aunque estés sin señal, y podés reemplazarlo o quitarlo cuando quieras.</p>
+                              <div class="flex gap-2">
+                                <button type="button" id="btn-pin-cfg-guardar" onclick="guardarPinDesdeConfiguracion()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Guardar PIN</button>
+                                <button type="button" id="btn-pin-cfg-quitar" onclick="quitarPinDelDispositivo()" class="hidden px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold transition">Quitar de este dispositivo</button>
+                              </div>
+                            </div>
+                          </div>
+
             <h4 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
               <i data-lucide="list-checks" class="w-4 h-4 text-purple-600"></i> Gestión de Comisiones
             </h4>
@@ -1148,6 +1178,39 @@
     </div>
 
     <!-- Modal de Confirmación Genérico -->
+    <!-- Oferta de alta del PIN de firma (aparece en el login si el dispositivo no tiene) -->
+    <div id="modal-pin-alta" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
+        <div class="bg-slate-800 text-white p-4 flex items-center gap-2">
+          <i data-lucide="key-round" class="w-4 h-4 text-emerald-300"></i>
+          <h3 class="font-bold text-sm">Definí tu PIN para firmar sin conexión</h3>
+        </div>
+        <div class="p-6 space-y-3">
+          <p class="text-sm text-slate-600 leading-relaxed">Este dispositivo todavía no tiene un PIN guardado para tu cuenta (<span id="pin-alta-cuenta" class="font-semibold text-slate-700">—</span>). Sin PIN, el cierre de jornada no se puede firmar cuando no hay señal.</p>
+          <p class="text-[11px] text-slate-500">Pedimos tu contraseña porque el PIN sólo se guarda si Firebase la verifica. El PIN queda en este dispositivo: no se envía ni se guarda en la base de datos.</p>
+          <div>
+            <label for="pin-alta-clave" class="block text-xs font-semibold text-slate-500 mb-1">Contraseña de tu cuenta</label>
+            <input type="password" id="pin-alta-clave" autocomplete="current-password" placeholder="Se verifica en Firebase y no se guarda" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+          </div>
+          <div class="flex gap-2">
+            <div class="flex-1">
+              <label for="pin-alta-pin" class="block text-xs font-semibold text-slate-500 mb-1">PIN (4 a 8 dígitos)</label>
+              <input type="password" id="pin-alta-pin" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="••••" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+            </div>
+            <div class="flex-1">
+              <label for="pin-alta-pin2" class="block text-xs font-semibold text-slate-500 mb-1">Repetir PIN</label>
+              <input type="password" id="pin-alta-pin2" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="••••" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+            </div>
+          </div>
+          <p id="msg-pin-alta" class="text-[11px] text-slate-500"></p>
+        </div>
+        <div class="bg-slate-50 px-6 py-4 flex justify-end gap-3">
+          <button type="button" onclick="posponerAltaPin()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition hover:bg-slate-100">Ahora no</button>
+          <button type="button" id="btn-pin-alta-guardar" onclick="confirmarAltaPinEnLogin()" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition shadow-sm flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Guardar PIN</button>
+        </div>
+      </div>
+    </div>
+
     <div id="modal-confirmation" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
       <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100">
         <div class="bg-slate-800 text-white p-4">
