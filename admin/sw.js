@@ -3,7 +3,7 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v35-salida-inmediata';
+const CACHE_NAME = 'covimt9-v36-recuperacion-contrasena';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
@@ -11,7 +11,7 @@ const STATIC_ASSETS = [
   'bitacora.html',
   'bitacora.css?v=20261015-1',
   'bitacora.js?v=20261015-1',
-  'cooperativa.js?v=20261015-35',
+  'cooperativa.js?v=20261017-1',
   'offlineSync.js?v=20261015-12',
   'firebaseConfig.js',
   'pinos.png?v=20261014-25',
@@ -66,7 +66,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name.startsWith('covimt9-') && !name.startsWith('covimt9-socio-') && name !== CACHE_NAME)
+          .filter((name) => name.startsWith('covimt9-') && !name.startsWith('covimt9-socio-') && !name.startsWith('covimt9-panol-') && name !== CACHE_NAME)
           .map((name) => {
             console.log('[SW] Deleting old cache:', name);
             return caches.delete(name);
