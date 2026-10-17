@@ -250,6 +250,7 @@ function startFirestoreSync() {
     renderPlanilla();
     renderHistorialTable();
     actualizarAsignacionesTareasIngreso();
+    renderizarAvisoCierrePendiente();
   }, (error) => {
     showToast("Error al sincronizar jornadas: " + error.message, "error");
   });
@@ -2527,6 +2528,269 @@ function clearCanvas() {
   limpiarCanvasFirma(signatureCanvas);
 }
 
+// ============================================================
+//  VERIFICACIÓN DE IDENTIDAD PARA LA FIRMA DEL RESPONSABLE
+//  Online : la contraseña se comprueba contra Firebase con reautenticación
+//           (no se compara localmente, así que no se puede adivinar del código).
+//  Offline: se acepta un PIN guardado hasheado en este dispositivo.
+//  No hay forma de saltear el paso: si la verificación falla, la jornada queda abierta.
+// ============================================================
+const FIRMA_NS = 'covimt9-panol';
+const FIRMA_INTENTOS_MAX = 5;
+const FIRMA_BLOQUEO_MS = 60 * 1000;
+
+function cuentaFirmando() {
+  const user = firebase.auth().currentUser;
+  return user ? { uid: user.uid, email: user.email || '' } : null;
+}
+
+const _firmaClavePin = (uid) => `${FIRMA_NS}_pin_${uid}`;
+const _firmaClaveEstado = (uid) => `${FIRMA_NS}_pin_estado_${uid}`;
+
+function _firmaSalt() {
+  const k = `${FIRMA_NS}_pin_salt`;
+  let s = localStorage.getItem(k);
+  if (!s) {
+    const buf = new Uint8Array(16);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(buf);
+    else for (let i = 0; i < buf.length; i++) buf[i] = Math.floor(Math.random() * 256);
+    s = Array.from(buf, b => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem(k, s);
+  }
+  return s;
+}
+
+// crypto.subtle sólo existe en contexto seguro (https o localhost). Si la app se
+// sirve por http://192.168.x.x no está: se cae a un hash propio y se deja constancia
+// en el registro para que el verificador sepa qué tan fuerte fue la guarda.
+function _firmaAlgoDisponible() { return Boolean(window.crypto && window.crypto.subtle); }
+
+async function _firmaHashCon(algo, texto) {
+  const datos = `${_firmaSalt()}|${texto}`;
+  if (algo === 'sha256') {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(datos));
+    return 'sha256:' + Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+  }
+  let h = 5381;
+  for (let i = 0; i < datos.length; i++) h = ((h << 5) + h + datos.charCodeAt(i)) >>> 0;
+  return 'djb2:' + h.toString(16);
+}
+
+async function _firmaHash(texto) {
+  if (!_firmaAlgoDisponible()) {
+    console.warn('[firma] crypto.subtle no disponible (contexto no seguro): el PIN local se guarda con un hash de respaldo, no criptográfico.');
+    return _firmaHashCon('djb2', texto);
+  }
+  return _firmaHashCon('sha256', texto);
+}
+
+// El PIN puede haberse guardado en un día servido por https (sha256) y validarse en
+// otro corriendo por http://ip-de-red (sin crypto.subtle). Se compara contra el
+// algoritmo que quedó anotado en el valor guardado, no contra el de hoy.
+async function _firmaCoincide(guardado, texto) {
+  if (!guardado) return false;
+  const actual = await _firmaHash(texto);
+  if (actual === guardado) return true;
+  const algo = String(guardado).split(':')[0];
+  return (algo === 'sha256' || algo === 'djb2') ? (await _firmaHashCon(algo, texto)) === guardado : false;
+}
+
+function _firmaEstado(uid) {
+  try { return JSON.parse(localStorage.getItem(_firmaClaveEstado(uid))) || {}; } catch (e) { return {}; }
+}
+
+function _firmaRegistrarFallo(uid) {
+  const fails = (_firmaEstado(uid).fails || 0) + 1;
+  localStorage.setItem(_firmaClaveEstado(uid), JSON.stringify({
+    fails,
+    hasta: fails >= FIRMA_INTENTOS_MAX ? Date.now() + FIRMA_BLOQUEO_MS : 0
+  }));
+  return { restantes: Math.max(0, FIRMA_INTENTOS_MAX - fails), bloqueado: fails >= FIRMA_INTENTOS_MAX };
+}
+
+async function verificarPinLocal(uid, pin) {
+  const guardado = localStorage.getItem(_firmaClavePin(uid));
+  if (!guardado) return { ok: false, motivo: 'sin-pin' };
+  const hasta = _firmaEstado(uid).hasta || 0;
+  if (hasta > Date.now()) return { ok: false, motivo: 'bloqueado', segundos: Math.ceil((hasta - Date.now()) / 1000) };
+  if (await _firmaCoincide(guardado, pin)) {
+    localStorage.removeItem(_firmaClaveEstado(uid));
+    return { ok: true };
+  }
+  const r = _firmaRegistrarFallo(uid);
+  return { ok: false, motivo: r.bloqueado ? 'bloqueado' : 'incorrecto', restantes: r.restantes };
+}
+
+function traducirErrorAuth(error) {
+  const mensajes = {
+    'auth/wrong-password': 'La contraseña no coincide con tu cuenta.',
+    'auth/invalid-credential': 'La contraseña no coincide con tu cuenta.',
+    'auth/user-not-found': 'Tu cuenta ya no existe en Firebase. Avisale al administrador.',
+    'auth/too-many-requests': 'Muchos intentos fallidos. Espera unos minutos y probá de nuevo.',
+    'auth/network-request-failed': 'No pudimos contactar a Firebase para verificar la contraseña. Revisá la conexión.',
+    'app/sesion-expiro': 'Tu sesión quedó inválida. Volvé a iniciar sesión para firmar.',
+    'app/sin-correo': 'Tu cuenta no tiene correo asociado y por eso no se puede verificar la contraseña.',
+  };
+  return mensajes[error && error.code] || ('No se pudo verificar tu identidad: ' + ((error && error.message) || error));
+}
+
+function _firmaModoOffline() { return !navigator.onLine; }
+
+function prepararVerificacionFirma() {
+  const clave = document.getElementById('firma-responsable-clave');
+  if (!clave) return;
+  const label = document.getElementById('lbl-firma-responsable-clave');
+  const msg = document.getElementById('msg-firma-responsable-clave');
+  const bloque = document.getElementById('bloque-pin-firma');
+  const pin = document.getElementById('firma-responsable-pin');
+  const cuenta = cuentaFirmando();
+
+  document.getElementById('lbl-firma-responsable-cuenta').textContent =
+    (cuenta && cuenta.email) ? cuenta.email : 'sesión sin correo';
+  clave.value = '';
+  if (pin) pin.value = '';
+
+  if (_firmaModoOffline()) {
+    label.textContent = 'PIN de este dispositivo';
+    msg.textContent = 'Estás sin conexión: la firma se valida contra el PIN guardado en este dispositivo y queda marcada como verificación local.';
+    if (bloque) bloque.classList.add('hidden');
+  } else {
+    label.textContent = 'Contraseña de tu cuenta';
+    msg.textContent = 'Se verifica contra Firebase antes de guardar la firma. Sin la contraseña correcta la jornada queda abierta.';
+    if (bloque) {
+      const hay = cuenta && localStorage.getItem(_firmaClavePin(cuenta.uid));
+      bloque.classList.remove('hidden');
+      document.getElementById('msg-firma-responsable-pin').textContent = hay
+        ? 'Ya hay un PIN cargado en este dispositivo. Dejá el campo vacío para conservarlo, o escribí uno nuevo (4 a 8 dígitos) para reemplazarlo.'
+        : 'Todavía no hay PIN en este dispositivo. Definilo acá (se guarda sólo si la contraseña de arriba verifica bien) y así vas a poder firmar aunque el obrador se quede sin señal.';
+    }
+  }
+}
+
+function _firmaBtn(texto) {
+  const btn = document.getElementById('btn-firmar-responsable');
+  if (!btn) return null;
+  if (texto === null) { btn.disabled = false; btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Firmar y cerrar jornada'; }
+  else { btn.disabled = true; btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> ${texto}`; }
+  if (window.lucide) lucide.createIcons();
+  return btn;
+}
+
+async function verificarIdentidadParaFirmar() {
+  const cuenta = cuentaFirmando();
+  if (!cuenta) return { ok: false, error: 'Tu sesión quedó inválida. Volvé a iniciar sesión para firmar.' };
+
+  const input = document.getElementById('firma-responsable-clave');
+  const secreto = input.value;
+  if (!secreto) {
+    return { ok: false, error: _firmaModoOffline()
+      ? 'Escribí el PIN de este dispositivo para poder firmar.'
+      : 'Escribí la contraseña de tu cuenta para poder firmar.', foco: true };
+  }
+
+  if (_firmaModoOffline()) {
+    const r = await verificarPinLocal(cuenta.uid, secreto);
+    if (r.ok) return { ok: true, metodo: 'pin-local', cuenta };
+    const errores = {
+      'sin-pin': 'Este dispositivo todavía no tiene un PIN cargado para tu cuenta. Conectate una vez y verificá tu contraseña: ahí podés definir el PIN para firmar sin señal.',
+      'bloqueado': `Demasiados intentos fallidos. Probá de nuevo en ${r.segundos || 60} segundos.`,
+      'incorrecto': `El PIN no coincide. Te ${r.restantes === 1 ? 'queda' : 'quedan'} ${r.restantes} ${r.restantes === 1 ? 'intento' : 'intentos'} antes de bloquearse un minuto.`,
+    };
+    return { ok: false, error: errores[r.motivo], foco: true };
+  }
+
+  try {
+    const user = firebase.auth().currentUser;
+    if (!user || !user.email) throw { code: user ? 'app/sin-correo' : 'app/sesion-expiro' };
+    // credential() no valida argumentos vacíos en este build: hay que hacerlo antes.
+    await user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(user.email, secreto));
+    input.value = '';
+    return { ok: true, metodo: 'firebase', cuenta };
+  } catch (error) {
+    return { ok: false, error: traducirErrorAuth(error), foco: true, seleccionar: true };
+  }
+}
+
+function altaPinOpcional(cuenta) {
+  const pin = document.getElementById('firma-responsable-pin');
+  if (!pin || !pin.value) return Promise.resolve(null);
+  if (!/^[0-9]{4,8}$/.test(pin.value)) {
+    showToast('El PIN para firmar sin conexión tiene que ser de 4 a 8 dígitos.', 'error');
+    pin.focus();
+    return Promise.resolve(false);
+  }
+  // Sólo se guarda si la cuenta ya fue verificada contra Firebase en este mismo paso.
+  return _firmaHash(pin.value).then(hash => {
+    localStorage.setItem(_firmaClavePin(cuenta.uid), hash);
+    pin.value = '';
+    showToast('PIN para firma sin conexión guardado en este dispositivo.', 'success');
+    return true;
+  });
+}
+
+
+// --- CIERRES DE JORNADA SIN FIRMA DEL RESPONSABLE ---
+// El egreso del último trabajador ya dejó las horas en Firestore ANTES de abrir este
+// modal, así que cancelar o recargar no deshace nada: lo que se perdía era la firma,
+// y se perdía sin dejar rastro. Acá ese estado queda visible hasta que se firme.
+// Las fechas anteriores a esta constante son histórico previo al control de firma y
+// no se reclaman. Ajustala al día en que empieces a usar esta verificación.
+const CIERRE_FIRMA_DESDE = '2026-10-17';
+const CIERRE_AVISO_MAX = 3;
+
+function jornadasSinFirmaResponsable() {
+  const porFecha = {};
+  registros.forEach(r => {
+    if (!r.fecha || r.fecha < CIERRE_FIRMA_DESDE) return;
+    const g = porFecha[r.fecha] || (porFecha[r.fecha] = { fecha: r.fecha, registros: [], firmada: false, abierto: false, ultimo: null });
+    g.registros.push(r);
+    if (r.firmaResponsable) g.firmada = true;
+    if (r.estado === 'activo') g.abierto = true;
+    // Sólo sirve como objetivo de firma un registro con id: se escribe con
+    // .doc(id), y un id vacío crearía un documento nuevo en vez de cerrar el día.
+    if (r.id && (!g.ultimo || (r.horaSalida || '') >= (g.ultimo.horaSalida || ''))) g.ultimo = r;
+  });
+  return Object.values(porFecha)
+    .filter(g => !g.firmada && !g.abierto && g.registros.length > 0)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+}
+
+function renderizarAvisoCierrePendiente() {
+  const caja = document.getElementById('aviso-cierre-pendiente');
+  if (!caja) return;
+  const pendientes = jornadasSinFirmaResponsable();
+  window._cierresPendientes = pendientes;
+  if (pendientes.length === 0) { caja.classList.add('hidden'); return; }
+  const nombres = pendientes.slice(0, CIERRE_AVISO_MAX).map(g => formatDateString(g.fecha)).join(', ');
+  const extra = pendientes.length > CIERRE_AVISO_MAX ? ` y ${pendientes.length - CIERRE_AVISO_MAX} más` : '';
+  const plural = pendientes.length > 1 ? 's' : '';
+  document.getElementById('txt-cierre-pendiente').textContent =
+    `Jornada${plural} cerrada${plural} sin firma del responsable: ${nombres}${extra}. Las horas ya están guardadas; falta la conformidad.`;
+  caja.classList.remove('hidden');
+}
+
+function firmarCierrePendiente() {
+  const pendientes = window._cierresPendientes || jornadasSinFirmaResponsable();
+  // El más antiguo primero: es el cierre que hace más tiempo espera conformidad.
+  const objetivo = pendientes.filter(g => g.ultimo).pop();
+  if (objetivo) { openFirmaResponsableModal(objetivo.ultimo.id, objetivo.ultimo); return; }
+  if (pendientes.length > 0) {
+    showToast('Los días pendientes no tienen un registro firmable (falta el id guardado). Cerralos corrigiendo el documento en Firestore.', 'error');
+    return;
+  }
+  showToast('No hay cierres pendientes de firma.', 'info');
+  renderizarAvisoCierrePendiente();
+}
+
+function cancelarFirmaResponsable() {
+  const id = document.getElementById('firma-responsable-registro-id').value;
+  if (responsableSignatureCanvas) limpiarCanvasFirma(responsableSignatureCanvas);
+  document.getElementById('modal-firma-responsable').classList.add('hidden');
+  showToast('Cierre sin firmar. La jornada queda marcada como pendiente de conformidad.', 'info');
+  registrarLog('Cierre de Jornada sin firma', `Se canceló la firma del responsable de la jornada ${id}. Las horas del día siguen registradas.`);
+  try { renderizarAvisoCierrePendiente(); } catch (e) { console.warn('[aviso] no se pudo refrescar el pendientes:', e); }
+}
+
 function openFirmaResponsableModal(registroId, registroData = null) {
   const reg = registroData || registros.find(r => r.id === registroId);
   if (!reg) return;
@@ -2536,7 +2800,16 @@ function openFirmaResponsableModal(registroId, registroData = null) {
   document.getElementById('modal-firma-responsable').classList.remove('hidden');
   responsableSignatureCanvas = document.getElementById('responsable-signature-canvas');
   responsableSignatureCtx = prepararCanvasFirma(responsableSignatureCanvas);
+  prepararVerificacionFirma();
   lucide.createIcons();
+  if (!window._firmaEscuchaRed) {
+    window._firmaEscuchaRed = true;
+    // Si la conexión cae (o vuelve) con el modal abierto, el campo pasa de
+    // contraseña a PIN y viceversa, para no quedarse pidiendo lo imposible.
+    ['online','offline'].forEach(ev => window.addEventListener(ev, () => {
+      if (!document.getElementById('modal-firma-responsable').classList.contains('hidden')) prepararVerificacionFirma();
+    }));
+  }
 }
 
 async function submitFirmaResponsableJornada() {
@@ -2545,28 +2818,53 @@ async function submitFirmaResponsableJornada() {
     showToast('La firma del responsable (capataz/delegado) es obligatoria.', 'error');
     return;
   }
-  const firmaResponsable = responsableSignatureCanvas.toDataURL();
-  const data = { firmaResponsable };
+
+  _firmaBtn('Verificando identidad...');
+  const verificacion = await verificarIdentidadParaFirmar();
+  if (!verificacion.ok) {
+    _firmaBtn(null);
+    showToast(verificacion.error, 'error');
+    const input = document.getElementById('firma-responsable-clave');
+    if (verificacion.foco) input.focus();
+    if (verificacion.seleccionar) input.select();
+    return;
+  }
+
+  const cuenta = verificacion.cuenta;
+  if ((await altaPinOpcional(cuenta)) === false) { _firmaBtn(null); return; }
+
+  const data = {
+    firmaResponsable: responsableSignatureCanvas.toDataURL(),
+    firmaResponsableFecha: new Date().toISOString(),
+    firmaResponsableUid: cuenta.uid,
+    firmaResponsableEmail: cuenta.email || '',
+    firmaResponsableMetodo: verificacion.metodo
+  };
   try {
     if (!navigator.onLine) {
       OfflineSync.enqueue('registros', id, 'merge', data);
       const idx = registros.findIndex(r => r.id === id);
       if (idx >= 0) registros[idx] = { ...registros[idx], ...data };
-      showToast('Firma del responsable guardada offline. Se sincronizará al tener conexión.', 'info');
+      showToast('Jornada cerrada con firma verificada por PIN local. Se sincronizará al tener conexión.', 'info');
     } else {
       await db.collection('registros').doc(id).set(data, { merge: true });
       const idx = registros.findIndex(r => r.id === id);
       if (idx >= 0) registros[idx] = { ...registros[idx], ...data };
-      showToast('Jornada cerrada con la firma del responsable.', 'success');
+      showToast(verificacion.metodo === 'firebase'
+        ? 'Jornada cerrada. Firma verificada con tu cuenta.'
+        : 'Jornada cerrada con verificación local (sin conexión).', 'success');
     }
-    registrarLog('Cierre de Jornada', `Firma del responsable registrada para la jornada ${id}.`);
+    registrarLog('Cierre de Jornada', `Firma del responsable verificada por ${verificacion.metodo === 'firebase' ? 'contraseña en Firebase' : 'PIN local'} para la jornada ${id}.`);
     document.getElementById('modal-firma-responsable').classList.add('hidden');
     renderHistorialTable();
   } catch (err) {
     showToast('Error al guardar la firma del responsable: ' + err.message, 'error');
+  } finally {
+    _firmaBtn(null);
+    // Fuera del try: si el aviso falla al pintarse no debe parecer que la firma no se guardó.
+    renderizarAvisoCierrePendiente();
   }
 }
-
 function clearResponsableCanvas() {
   limpiarCanvasFirma(responsableSignatureCanvas);
 }
@@ -4137,7 +4435,7 @@ function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
   jornadasDelDia.filter(r => r.firmaResponsable).forEach(r => {
     const nombre = (r.responsable || 'Responsable sin nombre').trim();
     const existente = responsables.find(item => item.nombre.toLocaleLowerCase() === nombre.toLocaleLowerCase());
-    if (!existente) responsables.push({ nombre, firma: r.firmaResponsable });
+    if (!existente) responsables.push({ nombre, firma: r.firmaResponsable, metodo: r.firmaResponsableMetodo || '', email: r.firmaResponsableEmail || '', fecha: r.firmaResponsableFecha || '' });
   });
   // Compatibilidad con jornadas antiguas que todavía no poseen firma del responsable.
   if (responsables.length === 0) {
@@ -4149,7 +4447,7 @@ function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
   }
 
   let firmaY = doc.lastAutoTable.finalY + 12;
-  const altoBloqueResponsable = 34;
+  const altoBloqueResponsable = 40;
   const limitePagina = doc.internal.pageSize.height - 18;
   const centroFirmaX = doc.internal.pageSize.width / 2;
   const anchoFirma = 50;
@@ -4190,6 +4488,21 @@ function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
     doc.setFontSize(9);
     doc.setFont(undefined, 'normal');
     doc.text(responsable.nombre, centroFirmaX, lineaY + 6, { align: 'center' });
+
+    // Constancia de cómo se validó la firma. Las jornadas viejas no traen el
+    // campo: en ese caso no se imprime nada, para no mentir sobre el pasado.
+    if (responsable.metodo) {
+      const verificado = new Date(responsible.fecha);
+      const hora = isNaN(verificado) ? '' : ' · ' + verificado.toLocaleString('es-UY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      doc.setFontSize(7);
+      if (responsable.metodo === 'pin-local') {
+        doc.setTextColor(180, 90, 20);
+        doc.text(`validación local por PIN (sin conexión)${hora}`, centroFirmaX, lineaY + 12, { align: 'center' });
+      } else {
+        doc.setTextColor(110, 110, 110);
+        doc.text(`contraseña verificada en Firebase${hora}`, centroFirmaX, lineaY + 12, { align: 'center' });
+      }
+    }
 
     firmaY += altoBloqueResponsable;
   });

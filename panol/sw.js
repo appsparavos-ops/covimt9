@@ -8,7 +8,7 @@
 // es comun a todo el origen: si los dos SW se limpian por prefijo 'covimt9-',
 // el que se activa borra la cache del otro y le rompe el modo offline.
 const APP_NAMESPACE = 'covimt9-panol-';
-const CACHE_NAME = APP_NAMESPACE + 'v42-recuperacion-contrasena';
+const CACHE_NAME = APP_NAMESPACE + 'v44-cierre-pendiente';
 
 // Caches que esta app creo con nombres antiguos (prefijo compartido). Se listan
 // una por una, a proposito: asi podemos borrar las nuestras sin tocar nunca la
@@ -24,7 +24,7 @@ const STATIC_ASSETS = [
   'bitacora.html',
   'bitacora.css?v=20261015-1',
   'bitacora.js?v=20261015-1',
-  'cooperativa.js?v=20261017-1',
+  'cooperativa.js?v=20261017-3',
   'maquinas.js?v=20261015-5',
   'offlineSync.js?v=20261016-1',
   'firebaseConfig.js',
