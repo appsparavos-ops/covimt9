@@ -889,8 +889,16 @@ const MaquinasHerramientas = (() => {
       <td><input class="mh-return-note" maxlength="180" placeholder="Detalle opcional"></td>
     </tr>`).join('');
     setValue('mh-devolucion-observaciones','');
+    setText('mh-devolucion-encargado', ((firebase.auth().currentUser||{}).email) || 'sesión sin correo');
     openModal('mh-modal-devolucion');
-    setTimeout(() => { if (typeof prepararCanvasFirma === 'function') prepararCanvasFirma(document.getElementById('mh-return-signature-canvas')); }, 60);
+    setTimeout(() => {
+      if (typeof prepararCanvasFirma === 'function') {
+        // Los dos trazos comparten helper: prepararCanvasFirma es por-canvas (usa
+        // canvas.dataset para no enlazar los listeners dos veces).
+        prepararCanvasFirma(document.getElementById('mh-return-devuelve-canvas'));
+        prepararCanvasFirma(document.getElementById('mh-return-signature-canvas'));
+      }
+    }, 60);
   }
 
   function abrirDevolucionDesdeJornada(socioId, trabajadorNombre, fecha = fechaLocal()) {
@@ -940,14 +948,18 @@ const MaquinasHerramientas = (() => {
     if(!socio)return showToast('No se encontró el socio responsable.','error');
     const personaVal=validarPersonaDevolucion(socio,document.getElementById('mh-devolucion-receptor').value,fechaLocal());
     if(personaVal.error)return showToast(personaVal.error,'error');
+    const canvasDevuelve=document.getElementById('mh-return-devuelve-canvas');
     const canvas=document.getElementById('mh-return-signature-canvas');
-    if(!canvas||(typeof isCanvasBlank==='function'&&isCanvasBlank(canvas)))return showToast('La firma de quien devuelve es obligatoria.','error');
+    const vacia=c=>!c||(typeof isCanvasBlank==='function'&&isCanvasBlank(c));
+    // Orden deliberado: primero el que devuelve (paso 1 en pantalla), después el control.
+    if(vacia(canvasDevuelve))return showToast('La firma de quien devuelve es obligatoria.','error');
+    if(vacia(canvas))return showToast('La firma del encargado que controla la devolución es obligatoria.','error');
     const devolucionId=idOperacion('DEV');const marca=nowIso();
     const totalDevuelto=seleccion.reduce((n,i)=>n+i.cantidad,0);
     const pendienteFinal=Math.max(0,Number(prestamo.totalPendiente||0)-totalDevuelto);
     const loanUpdate={totalPendiente:pendienteFinal,resumenPendiente:restarResumen(prestamo.resumenPendiente,seleccion),setsResumen:setsTrasDevolucion(prestamo.setsResumen||[],seleccion),estado:pendienteFinal===0?'CERRADO':'DEVUELTO_PARCIAL',actualizadoEn:marca};
     if(pendienteFinal===0)loanUpdate.cerradoEn=marca;
-    const devolucion={prestamoId,socioId:prestamo.socioId,socioNombre:prestamo.socioNombre,destino:prestamo.destino,personaDevuelve:{nombre:personaVal.persona.nombre,tipo:personaVal.persona.tipo,parentesco:personaVal.persona.parentesco||'',edad:personaVal.persona.edad},items:seleccion.map(i=>({inventarioId:i.inventarioId,codigo:i.codigo,nombre:i.nombre,cantidad:i.cantidad,condicion:i.condicion,observacion:i.observacion,setNombres:[...(i.sets||[])]})),firma:canvas.toDataURL('image/png'),observaciones:document.getElementById('mh-devolucion-observaciones').value.trim(),fechaHora:marca,fecha:fechaLocal(),operadorUid:uid(),operadorEmail:(firebase.auth().currentUser||{}).email||''};
+    const devolucion={prestamoId,socioId:prestamo.socioId,socioNombre:prestamo.socioNombre,destino:prestamo.destino,personaDevuelve:{nombre:personaVal.persona.nombre,tipo:personaVal.persona.tipo,parentesco:personaVal.persona.parentesco||'',edad:personaVal.persona.edad},items:seleccion.map(i=>({inventarioId:i.inventarioId,codigo:i.codigo,nombre:i.nombre,cantidad:i.cantidad,condicion:i.condicion,observacion:i.observacion,setNombres:[...(i.sets||[])]})),firma:canvas.toDataURL('image/png'),firmaDe:'ENCARGADO',firmaDevuelve:canvasDevuelve.toDataURL('image/png'),encargado:(()=>{const u=firebase.auth().currentUser||{};return {uid:u.uid||'offline',email:u.email||'',nombre:u.displayName||u.email||'Encargado'};})(),observaciones:document.getElementById('mh-devolucion-observaciones').value.trim(),fechaHora:marca,fecha:fechaLocal(),operadorUid:uid(),operadorEmail:(firebase.auth().currentUser||{}).email||''};
     const btn=document.getElementById('mh-btn-confirmar-devolucion');btn.disabled=true;btn.textContent='Guardando…';
     try{
       if(navigator.onLine)await guardarDevolucionOnline(prestamo,devolucionId,devolucion,seleccion,loanUpdate);
@@ -1006,11 +1018,29 @@ const MaquinasHerramientas = (() => {
     Object.assign(prestamo,loanUpdate);devoluciones.push({id:devolucionId,...devolucion});render();
   }
 
-  function limpiarFirmaDevolucion(){const c=document.getElementById('mh-return-signature-canvas');if(typeof limpiarCanvasFirma==='function')limpiarCanvasFirma(c);}
+  function limpiarFirmaControl(){const c=document.getElementById('mh-return-signature-canvas');if(typeof limpiarCanvasFirma==='function')limpiarCanvasFirma(c);}
+  function limpiarFirmaQuienDevuelve(){const c=document.getElementById('mh-return-devuelve-canvas');if(typeof limpiarCanvasFirma==='function')limpiarCanvasFirma(c);}
+  // Nombre histórico: ahora limpia los dos trazos, para no dejar uno huérfano.
+  function limpiarFirmaDevolucion(){limpiarFirmaQuienDevuelve();limpiarFirmaControl();}
 
   function comprobanteDevolucion(id){const dev=devoluciones.find(d=>d.id===id);if(!dev)return showToast('No se encontró la devolución.','error');const loan=prestamos.find(p=>p.id===dev.prestamoId)||{};comprobanteDevolucionDesdeDatos(dev,loan);}
   function comprobanteDevolucionDesdeDatos(dev,loan){
-    if(!window.jspdf?.jsPDF)return;const {jsPDF}=window.jspdf;const doc=new jsPDF();doc.setFont('helvetica','bold');doc.setFontSize(16);doc.text('COVIMT 9',14,18);doc.setFontSize(13);doc.text('Comprobante de devolución',14,27);doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text(`Préstamo: ${dev.prestamoId}`,14,37);doc.text(`Socio: ${dev.socioId} — ${dev.socioNombre}`,14,43);doc.text(`Devuelve: ${dev.personaDevuelve.nombre}`,14,49);doc.text(`Fecha: ${new Date(dev.fechaHora).toLocaleString('es-UY')}`,14,55);doc.autoTable({startY:63,head:[['Código','Artículo','Cantidad','Condición','Origen']],body:dev.items.map(i=>[i.codigo,i.nombre,String(i.cantidad),({BUENO:'Bueno',DANADO:'Dañado',PERDIDO:'Perdido'}[i.condicion]||i.condicion),(i.setNombres||[]).join(', ')||'Individual']),theme:'grid',styles:{fontSize:9},headStyles:{fillColor:[6,95,70]}});let y=doc.lastAutoTable.finalY+10;if(dev.observaciones){doc.text(`Observaciones: ${dev.observaciones}`,14,y,{maxWidth:180});y+=12;}try{doc.addImage(dev.firma,'PNG',14,y,60,24);}catch{}doc.line(14,y+27,78,y+27);doc.text(dev.personaDevuelve.nombre,14,y+33);doc.text(loan.estado==='CERRADO'?'Préstamo cerrado':'Devolución parcial',120,y+15);doc.save(`devolucion_${dev.socioId}_${dev.fecha}.pdf`);
+    if(!window.jspdf?.jsPDF)return;const {jsPDF}=window.jspdf;const doc=new jsPDF();doc.setFont('helvetica','bold');doc.setFontSize(16);doc.text('COVIMT 9',14,18);doc.setFontSize(13);doc.text('Comprobante de devolución',14,27);doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text(`Préstamo: ${dev.prestamoId}`,14,37);doc.text(`Socio: ${dev.socioId} — ${dev.socioNombre}`,14,43);doc.text(`Devuelve: ${dev.personaDevuelve.nombre}`,14,49);doc.text(`Fecha: ${new Date(dev.fechaHora).toLocaleString('es-UY')}`,14,55);doc.autoTable({startY:63,head:[['Código','Artículo','Cantidad','Condición','Origen']],body:dev.items.map(i=>[i.codigo,i.nombre,String(i.cantidad),({BUENO:'Bueno',DANADO:'Dañado',PERDIDO:'Perdido'}[i.condicion]||i.condicion),(i.setNombres||[]).join(', ')||'Individual']),theme:'grid',styles:{fontSize:9},headStyles:{fillColor:[6,95,70]}});let y=doc.lastAutoTable.finalY+10;if(dev.observaciones){doc.text(`Observaciones: ${dev.observaciones}`,14,y,{maxWidth:180});y+=12;}const firmante=dev.firmaDe==='ENCARGADO'?`Recibe y controla: ${(dev.encargado&&dev.encargado.nombre)||dev.operadorEmail||'encargado'}`:(dev.personaDevuelve||{}).nombre||'';
+    if(dev.firmaDevuelve){
+      // Doble firma: quien devuelve a la izquierda, quien controla a la derecha.
+      try{doc.addImage(dev.firmaDevuelve,'PNG',14,y,60,24);}catch{}
+      doc.line(14,y+27,74,y+27);
+      doc.text(`Devuelve: ${((dev.personaDevuelve||{}).nombre)||'—'}`,14,y+32);
+      try{doc.addImage(dev.firma,'PNG',118,y,60,24);}catch{}
+      doc.line(118,y+27,178,y+27);
+      doc.text(firmante,118,y+32);
+      doc.text(loan.estado==='CERRADO'?'Préstamo cerrado':'Devolución parcial',14,y+40);
+    }else{
+      try{doc.addImage(dev.firma,'PNG',14,y,60,24);}catch{}
+      doc.line(14,y+27,78,y+27);
+      doc.text(firmante,14,y+33);
+      doc.text(loan.estado==='CERRADO'?'Préstamo cerrado':'Devolución parcial',120,y+15);
+    }doc.save(`devolucion_${dev.socioId}_${dev.fecha}.pdf`);
   }
 
   // ------------------------------------------------------------
@@ -1057,7 +1087,7 @@ const MaquinasHerramientas = (() => {
     if(tab==='reparaciones')renderReparaciones();
   }
 
-  return {init,setEditMode,openNuevo,editar,baja,closeModal,abrirCSV,descargarPlantilla,importarCSV,switchSubtab,abrirEntrega,ampliarEntrega,agregarArticuloEntrega,quitarArticuloEntrega,limpiarFirmaEntrega,abrirScanner,cerrarScanner,comprobanteEntrega,abrirDevolucion,limpiarFirmaDevolucion,comprobanteDevolucion,abrirReparacion,hayPrestamoObraPendiente,iniciarEntregasDesdeJornada,abrirDesdeJornada,abrirDesdeRegistroJornada,abrirDevolucionDesdeJornada,abrirDevolucionDesdeRegistro,cancelarEntrega,abrirNuevoSet,editarSet,bajaSet,agregarComponenteSet,quitarComponenteSet,cambiarComponenteSet,agregarSetEntrega,quitarSetEntrega,setMotivoParcial};
+  return {init,setEditMode,openNuevo,editar,baja,closeModal,abrirCSV,descargarPlantilla,importarCSV,switchSubtab,abrirEntrega,ampliarEntrega,agregarArticuloEntrega,quitarArticuloEntrega,limpiarFirmaEntrega,abrirScanner,cerrarScanner,comprobanteEntrega,abrirDevolucion,limpiarFirmaDevolucion,limpiarFirmaQuienDevuelve,limpiarFirmaControl,comprobanteDevolucion,abrirReparacion,hayPrestamoObraPendiente,iniciarEntregasDesdeJornada,abrirDesdeJornada,abrirDesdeRegistroJornada,abrirDevolucionDesdeJornada,abrirDevolucionDesdeRegistro,cancelarEntrega,abrirNuevoSet,editarSet,bajaSet,agregarComponenteSet,quitarComponenteSet,cambiarComponenteSet,agregarSetEntrega,quitarSetEntrega,setMotivoParcial};
 })();
 
 // Disponible para los botones declarativos del HTML y para cooperativa.js.

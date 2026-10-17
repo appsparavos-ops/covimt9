@@ -37,7 +37,7 @@
   <script src="offlineSync.js?v=20261016-1"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
   <script src="cooperativa.js?v=20261017-3" defer></script>
-  <script src="maquinas.js?v=20261015-5" defer></script>
+  <script src="maquinas.js?v=20261017-5" defer></script>
 
   <style>
     .tab-content {
@@ -788,12 +788,15 @@
           <input type="hidden" id="mh-devolucion-prestamo-id">
           <div class="mh-form-grid">
             <div class="mh-field"><label>Socio responsable</label><div id="mh-devolucion-socio" class="mh-static-value">—</div></div>
-            <div class="mh-field"><label for="mh-devolucion-receptor">Persona que devuelve y firma *</label><select id="mh-devolucion-receptor" required></select></div>
+            <div class="mh-field"><label for="mh-devolucion-receptor">Persona del socio que devuelve *</label><select id="mh-devolucion-receptor" required></select></div>
           </div>
           <div class="mh-alert mh-alert-info" style="margin-top:1rem">Puede devolver todos los artículos o indicar cantidades parciales. Los artículos dañados abrirán automáticamente una reparación.</div>
           <div class="mh-table-wrap"><table class="mh-table mh-return-table"><thead><tr><th>Artículo</th><th>Pendiente</th><th>Devuelve</th><th>Condición</th><th>Detalle</th></tr></thead><tbody id="mh-devolucion-items"></tbody></table></div>
           <div class="mh-field" style="margin-top:1rem"><label for="mh-devolucion-observaciones">Observaciones generales</label><textarea id="mh-devolucion-observaciones" rows="2" maxlength="500"></textarea></div>
-          <div class="mh-signature-box"><div class="mh-toolbar"><div><strong>Firma de quien devuelve *</strong></div><button type="button" class="mh-btn mh-btn-secondary" onclick="MaquinasHerramientas.limpiarFirmaDevolucion()">Limpiar firma</button></div><canvas id="mh-return-signature-canvas"></canvas></div>
+          <div class="mh-form-grid" style="margin-top:1rem">
+            <div class="mh-signature-box" style="margin-top:0"><div class="mh-toolbar"><div><strong>1. Firma de quien devuelve *</strong><div class="mh-help">Confirma que entrega las herramientas y accesorios listados arriba.</div></div><button type="button" class="mh-btn mh-btn-secondary" onclick="MaquinasHerramientas.limpiarFirmaQuienDevuelve()">Limpiar</button></div><canvas id="mh-return-devuelve-canvas"></canvas></div>
+            <div class="mh-signature-box" style="margin-top:0"><div class="mh-toolbar"><div><strong>2. Firma del encargado que controla *</strong><div class="mh-help">Recibe y verifica el estado. Sesión: <span id="mh-devolucion-encargado">—</span></div></div><button type="button" class="mh-btn mh-btn-secondary" onclick="MaquinasHerramientas.limpiarFirmaControl()">Limpiar</button></div><canvas id="mh-return-signature-canvas"></canvas></div>
+          </div>
           <div class="mh-actions"><button type="button" class="mh-btn mh-btn-secondary" onclick="MaquinasHerramientas.closeModal('mh-modal-devolucion')">Cancelar</button><button id="mh-btn-confirmar-devolucion" type="submit" class="mh-btn mh-btn-primary">Firmar y registrar devolución</button></div>
         </form>
       </div>
