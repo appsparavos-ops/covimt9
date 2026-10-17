@@ -35,7 +35,7 @@
   <!-- Módulo Offline Sync -->
   <script src="offlineSync.js?v=20261015-12"></script>
   <!-- Importar Lógica (Con Defer para carga diferida) -->
-  <script src="cooperativa.js?v=20261017-1" defer></script>
+  <script src="cooperativa.js?v=20261017-3" defer></script>
 
   <style>
     .tab-content {
@@ -430,6 +430,16 @@
 
       <!-- ================= TAB: CONTROL DE JORNADA ================= -->
       <div id="tab-asistencia" class="tab-content space-y-6">
+        <!-- Aviso de cierres de jornada pendientes de firma del responsable -->
+        <div id="aviso-cierre-pendiente" class="hidden flex items-center justify-between p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+          <div class="flex items-center gap-2 text-amber-900 text-sm">
+            <i data-lucide="alert-triangle" class="w-5 h-5 flex-shrink-0 text-amber-600"></i>
+            <span id="txt-cierre-pendiente">—</span>
+          </div>
+          <button type="button" onclick="firmarCierrePendiente()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-2">
+            <i data-lucide="badge-check" class="w-4 h-4"></i> Firmar ahora
+          </button>
+        </div>
         <!-- Herramientas administrativas de Jornada (solo visibles en Modo Edición) -->
         <div id="panel-reporte-jornada" class="hidden bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -835,8 +845,25 @@
             </button>
           </div>
         </div>
-        <div class="bg-slate-50 px-6 py-4 flex justify-end">
-          <button type="button" onclick="submitFirmaResponsableJornada()" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2">
+                  <div class="p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm">
+            <div class="flex items-center justify-between text-xs text-slate-500 mb-2">
+              <span>Firmás como</span>
+              <strong id="lbl-firma-responsable-cuenta" class="text-slate-700">—</strong>
+            </div>
+            <label for="firma-responsable-clave" id="lbl-firma-responsable-clave" class="block text-xs font-semibold text-slate-500 mb-1">Contraseña de tu cuenta</label>
+            <input type="password" id="firma-responsable-clave" autocomplete="current-password" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <p id="msg-firma-responsable-clave" class="text-xs text-slate-500 mt-1">Se verifica contra Firebase antes de guardar la firma. Sin la contraseña correcta la jornada queda abierta.</p>
+          </div>
+          <div id="bloque-pin-firma" class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm hidden">
+            <label for="firma-responsable-pin" class="block text-xs font-semibold text-slate-500 mb-1">PIN para firmar sin conexión</label>
+            <input type="password" id="firma-responsable-pin" inputmode="numeric" maxlength="8" autocomplete="new-password" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <p id="msg-firma-responsable-pin" class="text-xs text-slate-500 mt-1">4 a 8 dígitos. Opcional: se guarda sólo en este dispositivo y hasheado, para los días que el obrador se queda sin señal.</p>
+          </div>
+<div class="bg-slate-50 px-6 py-4 flex justify-end gap-3">
+          <button type="button" onclick="cancelarFirmaResponsable()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">
+            <i data-lucide="x" class="w-4 h-4"></i> Cancelar
+          </button>
+          <button type="button" id="btn-firmar-responsable" onclick="submitFirmaResponsableJornada()" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2">
             <i data-lucide="check" class="w-4 h-4"></i> Firmar y cerrar jornada
           </button>
         </div>
@@ -1190,7 +1217,7 @@
       window.addEventListener('load', async () => {
         // Mantener el service worker de esta aplicación y solicitar su actualización.
 
-        navigator.serviceWorker.register('sw.js?v=20261017-1')
+        navigator.serviceWorker.register('sw.js?v=20261017-3')
           .then((reg) => {
             if (reg.waiting) reg.waiting.postMessage('skipWaiting');
             reg.update().catch(err => console.warn('[PWA] No se pudo comprobar la actualización:', err));
