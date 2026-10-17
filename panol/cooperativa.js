@@ -116,6 +116,10 @@ function checkAuthAndInit() {
       if (navigator.onLine) {
         OfflineSync.precargarDatos(db);
       }
+
+      // Si este dispositivo todavía no tiene PIN para esta cuenta, se ofrece definirlo
+      // acá (con la contraseña recién usada) en vez de esperar al cierre o al Modo Edición.
+      ofrecerAltaPinEnLogin();
     } else {
       // Usuario no autenticado: mostrar login, ocultar app
       viewLogin?.classList.remove('hidden');
@@ -1037,6 +1041,7 @@ function applyModoEdicion() {
   const restrictedSection = document.getElementById('config-restricted-section');
   if (restrictedSection) {
     restrictedSection.classList.toggle('hidden', !modoEdicion);
+    if (modoEdicion && typeof renderizarEstadoPinConfiguracion === 'function') renderizarEstadoPinConfiguracion();
   }
   // Re-renderizar la lista de socios y actualizar el módulo de inventario.
   renderSociosList();
@@ -2546,6 +2551,8 @@ function cuentaFirmando() {
 
 const _firmaClavePin = (uid) => `${FIRMA_NS}_pin_${uid}`;
 const _firmaClaveEstado = (uid) => `${FIRMA_NS}_pin_estado_${uid}`;
+const _firmaClaveOfrecido = (uid) => `${FIRMA_NS}_pin_ofrecido_${uid}`;
+const FIRMA_PIN_OFRECIDO_MS = 7 * 24 * 60 * 60 * 1000;  // 7 días
 
 function _firmaSalt() {
   const k = `${FIRMA_NS}_pin_salt`;
@@ -2692,7 +2699,7 @@ async function verificarIdentidadParaFirmar() {
     const r = await verificarPinLocal(cuenta.uid, secreto);
     if (r.ok) return { ok: true, metodo: 'pin-local', cuenta };
     const errores = {
-      'sin-pin': 'Este dispositivo todavía no tiene un PIN cargado para tu cuenta. Conectate una vez y verificá tu contraseña: ahí podés definir el PIN para firmar sin señal.',
+      'sin-pin': 'Este dispositivo todavía no tiene un PIN cargado para tu cuenta. Definilo en Configuración > Modo Edición > “PIN para firmar sin conexión”, o escribí tu contraseña acá abajo y lo creás en el mismo paso.',
       'bloqueado': `Demasiados intentos fallidos. Probá de nuevo en ${r.segundos || 60} segundos.`,
       'incorrecto': `El PIN no coincide. Te ${r.restantes === 1 ? 'queda' : 'quedan'} ${r.restantes} ${r.restantes === 1 ? 'intento' : 'intentos'} antes de bloquearse un minuto.`,
     };
@@ -2728,6 +2735,207 @@ function altaPinOpcional(cuenta) {
   });
 }
 
+
+// --- PIN DE FIRMA DEFINIDO DESDE CONFIGURACIÓN (Modo Edición) ---
+// Hasta acá el PIN sólo podía crearse dentro del modal de firma del cierre, y se
+// guardaba sólo si la contraseña verificaba contra Firebase en ese mismo paso. Si la
+// primera jornada cerraba sin señal, no había forma de generarlo: este panel separa el
+// momento (antes de la primera jornada, con conexión) sin aflojar la regla, que sigue
+// siendo "hace falta la contraseña verificada de la cuenta".
+function pinConfigCuenta() {
+  return (typeof cuentaFirmando === 'function') ? cuentaFirmando() : null;
+}
+
+function _pinMsg(texto, esError, pref) {
+  const p = document.getElementById('msg-' + (pref || 'pin-cfg'));
+  if (!p) return;
+  p.textContent = texto;
+  p.classList.remove('text-slate-500', 'text-emerald-700', 'text-red-600');
+  p.classList.add(esError ? 'text-red-600' : 'text-emerald-700');
+}
+
+function renderizarEstadoPinConfiguracion() {
+  const caja = document.getElementById('pin-cfg-estado');
+  if (!caja) return;
+  const cuenta = pinConfigCuenta();
+  const lbl = document.getElementById('pin-cfg-cuenta');
+  if (lbl) lbl.textContent = cuenta ? (cuenta.email || cuenta.uid) : 'sin sesión';
+  const quitar = document.getElementById('btn-pin-cfg-quitar');
+  const guardado = cuenta ? localStorage.getItem(_firmaClavePin(cuenta.uid)) : null;
+  let msg;
+  if (!cuenta) {
+    msg = 'Iniciá sesión para ver el estado del PIN en este dispositivo.';
+  } else if (guardado) {
+    msg = 'Este dispositivo ya tiene un PIN guardado para tu cuenta. Si definís uno nuevo, el anterior deja de funcionar al instante.';
+    if (quitar) quitar.classList.remove('hidden');
+  } else {
+    msg = 'Todavía no hay PIN guardado para tu cuenta en este dispositivo. Sin PIN no se puede firmar el cierre de jornada sin conexión.';
+    if (quitar) quitar.classList.add('hidden');
+  }
+  const hasta = cuenta ? (_firmaEstado(cuenta.uid).hasta || 0) : 0;
+  if (hasta > Date.now()) {
+    msg += ' Quedan ' + Math.ceil((hasta - Date.now()) / 1000) + ' segundos del bloqueo por intentos fallidos.';
+  }
+  caja.textContent = msg;
+  caja.classList.toggle('bg-emerald-50', Boolean(guardado));
+  caja.classList.toggle('border-emerald-200', Boolean(guardado));
+  caja.classList.toggle('text-emerald-800', Boolean(guardado));
+  caja.classList.toggle('bg-slate-50', !guardado);
+  caja.classList.toggle('border-slate-200', !guardado);
+  caja.classList.toggle('text-slate-600', !guardado);
+}
+
+// --- Camino compartido de alta del PIN (tarjeta de Configuración y oferta del login) ---
+// Un solo lugar donde se verifica la contraseña y se escribe el hash: así los dos
+// ingresos tienen exactamente la misma regla y el mismo bloqueo por intentos.
+async function _pinGuardarDesdeFormulario(pref, origen) {
+  const btn = document.getElementById('btn-' + pref + '-guardar');
+  const claveInput = document.getElementById(pref + '-clave');
+  const p1 = document.getElementById(pref + '-pin');
+  const p2 = document.getElementById(pref + '-pin2');
+  const avisa = (texto, error) => _pinMsg(texto, error, pref);
+  const cuenta = pinConfigCuenta();
+  if (!cuenta) {
+    avisa('Tu sesión quedó inválida. Volvé a iniciar sesión para definir el PIN.', true);
+    return false;
+  }
+  const hasta = _firmaEstado(cuenta.uid).hasta || 0;
+  if (hasta > Date.now()) {
+    avisa('Demasiados intentos fallidos seguidos. Probá de nuevo en ' + Math.ceil((hasta - Date.now()) / 1000) + ' segundos.', true);
+    return false;
+  }
+  // Sin conexión no se puede verificar la contraseña, así que no se guarda nada:
+  // un PIN que cualquiera pueda cargar en una tablet sería un cheque en blanco.
+  if (!navigator.onLine) {
+    avisa('Necesitás conexión: el PIN sólo se guarda si Firebase verifica tu contraseña en este momento.', true);
+    return false;
+  }
+  const secreto = claveInput.value;
+  if (!secreto) {
+    avisa('Escribí la contraseña de tu cuenta; es lo que autoriza a guardar el PIN.', true);
+    claveInput.focus();
+    return false;
+  }
+  const pin = p1.value.trim();
+  if (!/^[0-9]{4,8}$/.test(pin)) {
+    avisa('El PIN tiene que ser de 4 a 8 dígitos numéricos.', true);
+    p1.focus();
+    return false;
+  }
+  if (pin !== p2.value.trim()) {
+    avisa('El PIN y la repetición no coinciden. Volvé a escribirlos.', true);
+    p2.focus();
+    return false;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const user = firebase.auth().currentUser;
+    if (!user || !user.email) throw { code: user ? 'app/sin-correo' : 'app/sesion-expiro' };
+    // credential() no valida argumentos vacíos en este build: por eso se prueba antes.
+    await user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(user.email, secreto));
+    const hash = await _firmaHash(pin);
+    localStorage.setItem(_firmaClavePin(cuenta.uid), hash);
+    localStorage.removeItem(_firmaClaveEstado(cuenta.uid));
+    localStorage.removeItem(_firmaClaveOfrecido(cuenta.uid));
+    claveInput.value = '';
+    p1.value = '';
+    p2.value = '';
+    avisa('PIN guardado en este dispositivo. Ya podés firmar el cierre de jornada sin señal.', false);
+    showToast('PIN guardado en este dispositivo. Recordá que hay que definirlo en cada equipo y en cada dirección.', 'success');
+    registrarLog('Configuración', 'PIN para firmar sin conexión definido o actualizado en el dispositivo por '
+      + (cuenta.email || cuenta.uid) + ' (desde ' + (origen || 'configuración') + ')');
+    return true;
+  } catch (error) {
+    const r = _firmaRegistrarFallo(cuenta.uid);
+    claveInput.value = '';
+    const texto = traducirErrorAuth(error);
+    avisa(r && r.restantes !== undefined
+      ? texto + ' Te quedan ' + r.restantes + ' intentos antes del bloqueo de 60 segundos.'
+      : texto, true);
+    showToast(texto, 'error');
+    claveInput.focus();
+    return false;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function guardarPinDesdeConfiguracion() {
+  const ok = await _pinGuardarDesdeFormulario('pin-cfg', 'Configuración');
+  if (ok) renderizarEstadoPinConfiguracion();
+}
+
+
+// --- OFERTA DE ALTA DEL PIN EN EL LOGIN ---
+// Motivo: el PIN sólo podía crearse verificando la contraseña, y el único lugar era el
+// modal de firma del cierre (o la tarjeta de Modo Edición, que exige la clave de
+// acceso). Al ofrecerlo en el login: (1) no depende de un administrador, (2) la persona
+// recién escribió su contraseña y (3) queda resuelto antes de la primera jornada sin
+// señal. Es un ofrecimiento: se puede posponer y no bloquea el ingreso.
+function _pinOfrecidoRecientemente(uid) {
+  const visto = Number(localStorage.getItem(_firmaClaveOfrecido(uid)) || 0);
+  return Boolean(visto) && (Date.now() - visto) < FIRMA_PIN_OFRECIDO_MS;
+}
+
+function cerrarAltaPinEnLogin() {
+  const m = document.getElementById('modal-pin-alta');
+  if (m) m.classList.add('hidden');
+}
+
+function ofrecerAltaPinEnLogin() {
+  try {
+    const cuenta = pinConfigCuenta();
+    if (!cuenta) return;
+    if (!navigator.onLine) return;                                  // sin conexión no hay forma de verificar: no se molesta
+    if (localStorage.getItem(_firmaClavePin(cuenta.uid))) return;  // ya tiene PIN en este dispositivo
+    if (_pinOfrecidoRecientemente(cuenta.uid)) return;             // lo pospuso hace menos de 7 días
+    const modal = document.getElementById('modal-pin-alta');
+    if (!modal) return;
+    const lbl = document.getElementById('pin-alta-cuenta');
+    if (lbl) lbl.textContent = cuenta.email || cuenta.uid;
+    modal.classList.remove('hidden');
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
+    const clave = document.getElementById('pin-alta-clave');
+    if (clave) setTimeout(() => { try { clave.focus(); } catch (e) {} }, 80);
+  } catch (e) {
+    // Un fallo de este aviso no puede impedir entrar a la aplicación.
+  }
+}
+
+function posponerAltaPin() {
+  const cuenta = pinConfigCuenta();
+  if (cuenta) localStorage.setItem(_firmaClaveOfrecido(cuenta.uid), String(Date.now()));
+  cerrarAltaPinEnLogin();
+  showToast('Cuando quieras, definilo desde Configuración > Modo Edición > “PIN para firmar sin conexión”.', 'info');
+}
+
+async function confirmarAltaPinEnLogin() {
+  const ok = await _pinGuardarDesdeFormulario('pin-alta', 'login');
+  if (!ok) return;
+  cerrarAltaPinEnLogin();
+  if (typeof renderizarEstadoPinConfiguracion === 'function') renderizarEstadoPinConfiguracion();
+}
+
+async function quitarPinDelDispositivo() {
+  const cuenta = pinConfigCuenta();
+  if (!cuenta) return;
+  if (!localStorage.getItem(_firmaClavePin(cuenta.uid))) {
+    _pinMsg('Este dispositivo no tiene ningún PIN guardado para tu cuenta.', true);
+    return;
+  }
+  const ok = (typeof showConfirmModal === 'function')
+    ? await showConfirmModal('Quitar el PIN de este dispositivo',
+        'Vas a poder seguir firmando el cierre con conexión. Sin señal no vas a poder firmar hasta que definas un PIN otra vez.')
+    : true;
+  if (!ok) return;
+  localStorage.removeItem(_firmaClavePin(cuenta.uid));
+  localStorage.removeItem(_firmaClaveEstado(cuenta.uid));
+  localStorage.removeItem(_firmaClaveOfrecido(cuenta.uid));
+  registrarLog('Configuración', 'PIN para firmar sin conexión quitado del dispositivo por ' + (cuenta.email || cuenta.uid));
+  showToast('PIN quitado de este dispositivo.', 'info');
+  _pinMsg('PIN quitado. Este dispositivo vuelve a estar sin PIN guardado.', true);
+  renderizarEstadoPinConfiguracion();
+}
 
 // --- CIERRES DE JORNADA SIN FIRMA DEL RESPONSABLE ---
 // El egreso del último trabajador ya dejó las horas en Firestore ANTES de abrir este
@@ -3409,6 +3617,7 @@ function openConfigModal() {
   if (inputClave) inputClave.value = '';
   renderComisionesManagement();
   document.getElementById('modal-config').classList.remove('hidden');
+  if (typeof renderizarEstadoPinConfiguracion === 'function') renderizarEstadoPinConfiguracion();
 }
 
 function closeConfigModal() {
