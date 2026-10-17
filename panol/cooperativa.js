@@ -157,6 +157,53 @@ function handleLogin() {
     });
 }
 
+// --- RECUPERACIÓN DE CONTRASEÑA ---
+// La app sólo dispara el envío; el correo y el enlace los genera Firebase Auth.
+// No usa showConfirmModal(): #modal-confirmation vive dentro de #app-container,
+// que está oculto hasta iniciar sesión, así que en el login no se vería nada.
+function handleForgotPassword() {
+  const emailInput = document.getElementById('login-email');
+  const email = emailInput.value.trim();
+
+  if (!email) {
+    showToast('Escribe tu correo arriba y vuelve a tocar "Olvidé mi contraseña".', 'info');
+    emailInput.focus();
+    return;
+  }
+  if (!navigator.onLine) {
+    showToast('Estás sin conexión. El enlace de recuperación se envía por correo, así que necesitas internet.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-forgot-password');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.classList.add('opacity-50');
+  btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Enviando enlace...';
+  lucide.createIcons();
+
+  firebase.auth().sendPasswordResetEmail(email)
+    .then(() => {
+      showToast('Enlace enviado a ' + email + '. Revisa tu correo (y la carpeta de spam).', 'success');
+    })
+    .catch((error) => {
+      const mensajes = {
+        'auth/invalid-email': 'Ese correo no tiene un formato válido.',
+        'auth/user-not-found': 'No encontramos una cuenta con ese correo. Pídele al administrador que te la cargue.',
+        'auth/too-many-requests': 'Hiciste muchos intentos seguidos. Espera unos minutos y prueba de nuevo.',
+        'auth/network-request-failed': 'No pudimos contactar a Firebase. Revisa tu conexión e inténtalo de nuevo.',
+        'auth/operation-not-allowed': 'El restablecimiento por correo está desactivado en la consola de Firebase.',
+      };
+      showToast(mensajes[error.code] || ('No se pudo enviar el enlace: ' + error.message), 'error');
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.classList.remove('opacity-50');
+      btn.innerHTML = original;
+      lucide.createIcons();
+    });
+}
+
 async function handleLogout() {
   if (await showConfirmModal("Cerrar Sesión", "¿Confirmas que deseas cerrar tu sesión administrativa?")) {
     firebase.auth().signOut()
