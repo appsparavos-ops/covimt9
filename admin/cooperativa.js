@@ -24,7 +24,8 @@ const COMISIONES_LEGACY = {
 
 };
 let nombreResponsableActual = '';
-let responsableUnsubscribe = null;
+let responsableUnsubscribe = null; // legacy (no longer used, Auth displayName)
+let _responsableSyncInterval = null;
 
 // Helper function for formatting hours
 function formatHours(value) {
@@ -113,12 +114,33 @@ function checkAuthAndInit() {
       // Sincronizar Firestore
       startFirestoreSync();
 
+      // Sincronizar pendiente de responsable guardado offline (cache -> Auth displayName)
+      (async () => {
+        try {
+          const pendingRaw = localStorage.getItem('covimt9_responsable_pending_' + user.uid);
+          if (pendingRaw && navigator.onLine) {
+            const pending = JSON.parse(pendingRaw);
+            if (pending && pending.nombre && (!user.displayName || user.displayName !== pending.nombre)) {
+              console.log('[responsable] sincronizando pendiente offline -> Auth:', pending.nombre);
+              await user.updateProfile({ displayName: normalizarNombreResponsable(pending.nombre) });
+              await user.reload();
+              const fu = firebase.auth().currentUser;
+              if (fu) { try { localStorage.setItem('covimt9_responsable_' + fu.uid, fu.displayName || pending.nombre); } catch(e){} }
+              try { localStorage.removeItem('covimt9_responsable_pending_' + user.uid); } catch(e){}
+              showToast('Responsable sincronizado: ' + (pending.nombre), 'success');
+            } else if (pending && pending.nombre) {
+              try { localStorage.removeItem('covimt9_responsable_pending_' + user.uid); } catch(e){}
+            }
+          }
+        } catch(e){ console.warn('[responsable] sync pendiente error:', e); }
+      })();
+
       // Precargar datos para modo offline (ahora sí hay auth)
       if (navigator.onLine) {
         OfflineSync.precargarDatos(db);
       }
 
-      // Vincular responsable al login y sincronizar desde configuracion/{uid}
+      // Vincular responsable al login y sincronizar desde Firebase Auth displayName (sin colección nueva)
       iniciarSyncResponsable(user);
       verificarYConfigurarResponsable().then(() => {
         // Si este dispositivo todavía no tiene PIN para esta cuenta, se ofrece definirlo
@@ -136,6 +158,7 @@ function checkAuthAndInit() {
       saldosHistoricos = {};
       nombreResponsableActual = '';
       if (responsableUnsubscribe) { try { responsableUnsubscribe(); } catch(e){} responsableUnsubscribe = null; }
+      if (_responsableSyncInterval) { try { clearInterval(_responsableSyncInterval); } catch(e){} _responsableSyncInterval = null; }
       actualizarCampoResponsableUI();
     }
     // Refrescar iconos para elementos que acaban de hacerse visibles
@@ -908,7 +931,7 @@ function poblarOpcionesEgreso(registroId) {
 async function registerIngreso() {
   const socioId = document.getElementById('ingreso-socio-filtered').value;
   const fecha = document.getElementById('ingreso-fecha').value;
-  // Responsable vinculado al login (colección configuracion). Si aún no está cargado, intenta tomar el input como fallback.
+  // Responsable vinculado al login (Auth displayName). Si aún no está cargado, intenta tomar el input como fallback.
   const responsableInput = (document.getElementById('ingreso-responsable').value || '').trim();
   const responsable = (nombreResponsableActual && nombreResponsableActual.trim().length >= 3) ? nombreResponsableActual : responsableInput;
   if (!responsable || responsable.length < 3) {
@@ -3196,10 +3219,12 @@ async function confirmarAltaPinEnLogin() {
 
 
 // ============================================================
-//  RESPONSABLE VINCULADO AL LOGIN - COLECCIÓN configuracion
+//  RESPONSABLE VINCULADO AL LOGIN - Firebase Auth displayName (sin colección nueva)
+//  Pre-existente: se usa el perfil de Auth (user.displayName) + localStorage cache.
+//  No requiere reglas de Firestore. Sincroniza offline vía cache local.
 //  Al entrar por primera vez con email+pass, además del PIN offline,
 //  se solicita el nombre del responsable (capataz/delegado).
-//  Se guarda en Firebase: configuracion/{uid} = { nombreResponsable, email, uid, actualizadoEn }
+//  Se guarda en: Auth displayName = NOMBRE RESPONSABLE (normalizado)
 //  Y se usa automáticamente en cada Jornada (campo ingreso-responsable).
 // ============================================================
 function normalizarNombreResponsable(nombre) {
@@ -3229,68 +3254,121 @@ function actualizarCampoResponsableUI() {
   if (window.lucide) try { lucide.createIcons(); } catch(e){}
 }
 
+// Sync de responsable pendiente al volver online (cache local -> Auth displayName)
+if (typeof window !== 'undefined' && !window._responsableOnlineListener) {
+  window._responsableOnlineListener = true;
+  window.addEventListener('online', async () => {
+    try {
+      const cu = firebase.auth().currentUser;
+      if (!cu) return;
+      const pendingRaw = localStorage.getItem('covimt9_responsable_pending_' + cu.uid);
+      if (!pendingRaw) return;
+      const pending = JSON.parse(pendingRaw);
+      if (!pending || !pending.nombre) return;
+      console.log('[responsable] online: sincronizando pendiente', pending.nombre);
+      await cu.updateProfile({ displayName: normalizarNombreResponsable(pending.nombre) });
+      await cu.reload();
+      const fu = firebase.auth().currentUser;
+      if (fu) try { localStorage.setItem('covimt9_responsable_' + fu.uid, fu.displayName || pending.nombre); } catch(e){}
+      try { localStorage.removeItem('covimt9_responsable_pending_' + cu.uid); } catch(e){}
+      nombreResponsableActual = normalizarNombreResponsable(fu ? fu.displayName : pending.nombre);
+      actualizarCampoResponsableUI();
+      if (typeof showToast === 'function') showToast('Responsable sincronizado al reconectar: ' + nombreResponsableActual, 'success');
+    } catch(e){ console.warn('[responsable] online sync error:', e); }
+  });
+}
+
+function _leerResponsableDesdeAuth(user) {
+  // Fuente primaria: Auth displayName (pre-existente, sin reglas Firestore)
+  if (user && user.displayName && String(user.displayName).trim().length >= 3) {
+    return normalizarNombreResponsable(user.displayName);
+  }
+  return null;
+}
+function _aplicarResponsableCache(uid, nombre) {
+  if (nombre) {
+    nombreResponsableActual = normalizarNombreResponsable(nombre);
+    try { localStorage.setItem('covimt9_responsable_' + uid, nombreResponsableActual); } catch(e){}
+  } else {
+    try { const c = localStorage.getItem('covimt9_responsable_' + uid); if (c) nombreResponsableActual = normalizarNombreResponsable(c); } catch(e){}
+  }
+  actualizarCampoResponsableUI();
+  const cfgInput = document.getElementById('cfg-nombre-responsable');
+  if (cfgInput && nombreResponsableActual) cfgInput.value = nombreResponsableActual;
+}
 function iniciarSyncResponsable(user) {
-  if (!db || !user) return;
-  if (responsableUnsubscribe) { try { responsableUnsubscribe(); } catch(e){} responsableUnsubscribe = null; }
+  if (!user) return;
   const uid = user.uid;
-  // Escucha en tiempo real: db.collection('configuracion').doc(uid)
-  responsableUnsubscribe = db.collection('configuracion').doc(uid).onSnapshot((doc) => {
-    if (doc.exists && doc.data().nombreResponsable) {
-      nombreResponsableActual = normalizarNombreResponsable(doc.data().nombreResponsable);
-      // Cache local para modo offline (clave por uid)
-      try { localStorage.setItem('covimt9_responsable_' + uid, nombreResponsableActual); } catch(e){}
-    } else {
-      // Fallback offline: intenta localStorage
-      try {
-        const cached = localStorage.getItem('covimt9_responsable_' + uid);
-        if (cached) nombreResponsableActual = normalizarNombreResponsable(cached);
-      } catch(e){}
-    }
-    actualizarCampoResponsableUI();
-    // También actualiza el campo en modal de configuración si está abierto
-    const cfgInput = document.getElementById('cfg-nombre-responsable');
-    if (cfgInput && nombreResponsableActual) cfgInput.value = nombreResponsableActual;
+  if (_responsableSyncInterval) { try { clearInterval(_responsableSyncInterval); } catch(e){} _responsableSyncInterval = null; }
+  // 1) Intento desde Auth displayName
+  let nombreAuth = _leerResponsableDesdeAuth(user);
+  if (nombreAuth) {
+    _aplicarResponsableCache(uid, nombreAuth);
     const cfgCuenta = document.getElementById('cfg-responsable-cuenta');
     if (cfgCuenta) cfgCuenta.textContent = user.email || user.uid;
-  }, (err) => {
-    console.warn('[responsable] Error sync configuracion:', err);
-    // Fallback a localStorage si hay error de permisos/offline
-    try {
-      const cached = localStorage.getItem('covimt9_responsable_' + uid);
-      if (cached) { nombreResponsableActual = normalizarNombreResponsable(cached); actualizarCampoResponsableUI(); }
-    } catch(e){}
-  });
-  // Intento inmediato de carga one-time para no esperar snapshot
-  db.collection('configuracion').doc(uid).get().then(doc => {
-    if (doc.exists && doc.data().nombreResponsable) {
-      nombreResponsableActual = normalizarNombreResponsable(doc.data().nombreResponsable);
+    // Si hay cache distinto, prioriza Auth
+    return;
+  }
+  // 2) Fallback a localStorage (offline / primera carga)
+  try {
+    const cached = localStorage.getItem('covimt9_responsable_' + uid);
+    if (cached && cached.trim().length >= 3) {
+      nombreResponsableActual = normalizarNombreResponsable(cached);
       actualizarCampoResponsableUI();
+      const cfgCuenta = document.getElementById('cfg-responsable-cuenta');
+      if (cfgCuenta) cfgCuenta.textContent = user.email || user.uid;
+      console.log('[responsable] usando cache localStorage para', uid);
     }
-  }).catch(()=>{});
+  } catch(e){}
+  // (sin colección legacy) no se lee configuracion
+  // 4) Refresco periódico suave por si se actualizó displayName en otro dispositivo (Auth no tiene realtime)
+  // Cada 30s recarga el user para detectar cambios de displayName
+  _responsableSyncInterval = setInterval(async () => {
+    try {
+      const cu = firebase.auth().currentUser;
+      if (!cu || cu.uid !== uid) return;
+      await cu.reload();
+      const fresh = _leerResponsableDesdeAuth(cu);
+      if (fresh && fresh !== nombreResponsableActual) {
+        console.log('[responsable] displayName actualizado en otro dispositivo, refrescando:', fresh);
+        _aplicarResponsableCache(uid, fresh);
+        const cfgCuenta2 = document.getElementById('cfg-responsable-cuenta');
+        if (cfgCuenta2) cfgCuenta2.textContent = cu.email || cu.uid;
+      }
+    } catch(e){}
+  }, 30000);
 }
 
 async function verificarYConfigurarResponsable() {
   const user = firebase.auth().currentUser;
-  if (!user || !db) return;
+  if (!user) return;
   const uid = user.uid;
-  // Si ya tenemos nombre en memoria, no molestar
   if (nombreResponsableActual && nombreResponsableActual.trim().length >= 3) return;
-  // Consultar Firebase (o cache offline)
   try {
+    // Recargar perfil Auth por si cambió en otro dispositivo
+    try { await user.reload(); } catch(e){}
+    let nombreAuth = _leerResponsableDesdeAuth(user);
+    if (nombreAuth) {
+      nombreResponsableActual = nombreAuth;
+      _aplicarResponsableCache(uid, nombreAuth);
+      return;
+    }
+    // Cache local
+    const cached = localStorage.getItem('covimt9_responsable_' + uid);
+    if (cached && cached.trim().length >= 3) {
+      nombreResponsableActual = normalizarNombreResponsable(cached);
+      actualizarCampoResponsableUI();
+      // Si estamos online, intentar sincronizar ese cache a Auth displayName si aún no tiene
+      if (navigator.onLine && !nombreAuth) {
+        try { await user.updateProfile({ displayName: nombreResponsableActual }); console.log('[responsable] cache local promovido a Auth displayName'); } catch(e){ console.warn('[responsable] no se pudo promover cache a Auth:', e); }
+      }
+      return;
+    }
     if (!navigator.onLine) {
-      const cached = localStorage.getItem('covimt9_responsable_' + uid);
-      if (cached && cached.trim().length >= 3) { nombreResponsableActual = normalizarNombreResponsable(cached); actualizarCampoResponsableUI(); return; }
-      // Offline sin cache: no se puede pedir nombre porque no se puede guardar en configuracion -> avisar
       console.log('[responsable] Offline y sin responsable cacheado, se pedirá al volver online');
       return;
     }
-    const doc = await db.collection('configuracion').doc(uid).get();
-    if (doc.exists && doc.data().nombreResponsable && String(doc.data().nombreResponsable).trim().length >= 3) {
-      nombreResponsableActual = normalizarNombreResponsable(doc.data().nombreResponsable);
-      actualizarCampoResponsableUI();
-      return;
-    }
-    // No existe -> solicitar al usuario (primera vez)
+    // No hay colección legacy configuracion → directo a pedir nombre
     openModalResponsableConfig();
   } catch (e) {
     console.warn('[responsable] verificarYConfigurarResponsable error:', e);
@@ -3333,8 +3411,6 @@ async function guardarNombreResponsable(origen) {
     return false;
   }
   if (!/^[A-ZÁÉÍÓÚÑÜ .\'-]+$/i.test(nombre)) {
-    // Permitir letras, espacios, puntos, guiones, apóstrofes
-    // No bloquear estricto, solo avisar si hay caracteres raros
   }
   const user = firebase.auth().currentUser;
   if (!user) {
@@ -3342,43 +3418,45 @@ async function guardarNombreResponsable(origen) {
     return false;
   }
   const uid = user.uid;
-  const data = {
-    nombreResponsable: nombre,
-    email: user.email || '',
-    uid: uid,
-    actualizadoEn: new Date().toISOString(),
-    origen: origen || 'modal-login'
-  };
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Guardando...'; lucide.createIcons(); }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Guardando...'; if(window.lucide) lucide.createIcons(); }
   try {
     if (!navigator.onLine) {
-      // Guardar offline en cola y en cache local
-      OfflineSync.enqueue('configuracion', uid, 'set', data);
+      // Offline: guardar solo en cache local, se promoverá a Auth al volver online
       nombreResponsableActual = nombre;
       try { localStorage.setItem('covimt9_responsable_' + uid, nombre); } catch(e){}
+      // Guardar pendiente para sincronizar luego (intento best-effort)
+      try { localStorage.setItem('covimt9_responsable_pending_' + uid, JSON.stringify({ nombre, at: new Date().toISOString(), origen: origen||'modal-login' })); } catch(e){}
       actualizarCampoResponsableUI();
       closeModalResponsableConfig();
-      showToast('Responsable guardado offline. Se sincronizará en configuracion/' + uid + ' al tener conexión.', 'info');
-      registrarLog('Responsable (Offline)', 'Nombre responsable guardado offline: ' + nombre + ' (' + (user.email||uid) + ')');
+      showToast('Responsable guardado offline (en este dispositivo). Se guardará en tu perfil al tener conexión, sin crear colección nueva.', 'info');
+      registrarLog('Responsable (Offline)', 'Nombre responsable guardado offline (cache local): ' + nombre + ' (' + (user.email||uid) + ')');
       setTimeout(() => { try { ofrecerAltaPinEnLogin(); } catch(e){} }, 300);
       return true;
     }
-    await db.collection('configuracion').doc(uid).set(data, { merge: true });
-    nombreResponsableActual = nombre;
-    try { localStorage.setItem('covimt9_responsable_' + uid, nombre); } catch(e){}
+    // Online: guardar en Firebase Auth displayName (pre-existente, sin reglas)
+    await user.updateProfile({ displayName: nombre });
+    await user.reload();
+    // Re-obtener usuario refrescado
+    const freshUser = firebase.auth().currentUser;
+    nombreResponsableActual = normalizarNombreResponsable(freshUser && freshUser.displayName ? freshUser.displayName : nombre);
+    try { localStorage.setItem('covimt9_responsable_' + uid, nombreResponsableActual); } catch(e){}
+    try { localStorage.removeItem('covimt9_responsable_pending_' + uid); } catch(e){}
+    // Sin espejo legacy: solo Auth + cache local
     actualizarCampoResponsableUI();
     closeModalResponsableConfig();
-    showToast('Responsable configurado: ' + nombre, 'success');
-    registrarLog('Configuración Responsable', 'Nombre responsable guardado en configuracion/' + uid + ': ' + nombre + ' (' + (user.email||uid) + ') desde ' + (origen||'modal'));
-    // Tras configurar responsable, ofrecer PIN si aún no tiene (flujo primer login)
+    showToast('Responsable configurado: ' + nombreResponsableActual, 'success');
+    registrarLog('Configuración Responsable', 'Nombre responsable guardado en perfil Auth (displayName) para ' + uid + ': ' + nombreResponsableActual + ' (' + (user.email||uid) + ') desde ' + (origen||'modal'));
     setTimeout(() => { try { ofrecerAltaPinEnLogin(); } catch(e){} }, 300);
     return true;
   } catch (err) {
+    // Si falla updateProfile por reglas o red, caer a cache local
+    console.warn('[responsable] updateProfile falló, guardando en cache:', err);
+    try { nombreResponsableActual = nombre; localStorage.setItem('covimt9_responsable_' + uid, nombre); actualizarCampoResponsableUI(); closeModalResponsableConfig(); showToast('Guardado local (Auth no disponible): ' + nombre + '. Se sincronizará luego.', 'info'); return true; } catch(e){}
     if (msg) { msg.textContent = 'Error al guardar: ' + err.message; msg.classList.remove('hidden'); }
     showToast('Error al guardar responsable: ' + err.message, 'error');
     return false;
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Guardar y continuar'; lucide.createIcons(); }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Guardar y continuar'; if(window.lucide) lucide.createIcons(); }
   }
 }
 
