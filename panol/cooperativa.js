@@ -23,6 +23,8 @@ const COMISIONES_LEGACY = {
   Electoral: "Comisión Electoral"
 
 };
+let nombreResponsableActual = '';
+let responsableUnsubscribe = null;
 
 // Helper function for formatting hours
 function formatHours(value) {
@@ -117,9 +119,13 @@ function checkAuthAndInit() {
         OfflineSync.precargarDatos(db);
       }
 
-      // Si este dispositivo todavía no tiene PIN para esta cuenta, se ofrece definirlo
-      // acá (con la contraseña recién usada) en vez de esperar al cierre o al Modo Edición.
-      ofrecerAltaPinEnLogin();
+      // Vincular responsable al login y sincronizar desde configuracion/{uid}
+      iniciarSyncResponsable(user);
+      verificarYConfigurarResponsable().then(() => {
+        // Si este dispositivo todavía no tiene PIN para esta cuenta, se ofrece definirlo
+        // acá (con la contraseña recién usada) en vez de esperar al cierre o al Modo Edición.
+        ofrecerAltaPinEnLogin();
+      });
     } else {
       // Usuario no autenticado: mostrar login, ocultar app
       viewLogin?.classList.remove('hidden');
@@ -129,6 +135,9 @@ function checkAuthAndInit() {
       socios = [];
       registros = [];
       saldosHistoricos = {};
+      nombreResponsableActual = '';
+      if (responsableUnsubscribe) { try { responsableUnsubscribe(); } catch(e){} responsableUnsubscribe = null; }
+      actualizarCampoResponsableUI();
     }
     // Refrescar iconos para elementos que acaban de hacerse visibles
     lucide.createIcons();
@@ -740,10 +749,174 @@ async function removeNucleoMember(socioId, index) {
   }
 }
 
+
+// ============================================================
+//  HORARIO RESTRINGIDO - INGRESO 07:00/08:00 + EGRESO 2/4hs
+//  Ingreso solo 07:00 u 08:00 (con tolerancia ±15′ → redondeo)
+//  Egreso solo 2 o 4 horas después (07:00→09:00/11:00, 08:00→10:00/12:00)
+// ============================================================
+const HORARIOS_INGRESO_PERMITIDOS = ["07:00","08:00"];
+function normalizarHoraIngreso(horaRaw) {
+  if (!horaRaw || !horaRaw.includes(':')) return null;
+  let [h,m] = horaRaw.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  let horaNorm = horaRaw;
+  if (m >= 45) { h = (h + 1) % 24; horaNorm = String(h).padStart(2,'0') + ':00'; }
+  else if (m <= 15) { horaNorm = String(h).padStart(2,'0') + ':00'; }
+  else { horaNorm = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0'); }
+  if (HORARIOS_INGRESO_PERMITIDOS.includes(horaNorm)) return horaNorm;
+  if (HORARIOS_INGRESO_PERMITIDOS.includes(horaRaw)) return horaRaw;
+  return null;
+}
+function obtenerSalidasPermitidas(horaIngreso) {
+  if (horaIngreso === "07:00") return ["09:00","11:00"];
+  if (horaIngreso === "08:00") return ["10:00","12:00"];
+  return [];
+}
+function obtenerToleranciaEgreso(horaIngreso, horaEgresoTarget) {
+  // 2hs → hasta 15′ antes, 4hs → hasta 30′ antes (según especificación)
+  if (!horaIngreso || !horaEgresoTarget) return 0;
+  const permitidas = obtenerSalidasPermitidas(horaIngreso);
+  if (permitidas.length !== 2) return 0;
+  const es2hs = horaEgresoTarget === permitidas[0];
+  return es2hs ? 15 : 30;
+}
+function normalizarHoraEgreso(horaRaw, horaIngreso) {
+  if (!horaRaw || !horaIngreso) return null;
+  const permitidas = obtenerSalidasPermitidas(horaIngreso);
+  if (permitidas.length === 0) return null;
+  // Si la horaRaw coincide exacta con alguna permitida, devolverla
+  if (permitidas.includes(horaRaw)) return horaRaw;
+  // Si está dentro de la ventana de tolerancia temprana, redondear al target
+  for (const target of permitidas) {
+    const tol = obtenerToleranciaEgreso(horaIngreso, target);
+    const diff = calcularMinutosRango(horaRaw, target); // minutos desde horaRaw hasta target
+    // diff debe ser >=0 y <= tolerancia, y horaRaw debe ser antes o igual a target el mismo día
+    // calcularMinutosRango maneja wrap, pero para egreso asumimos mismo día y horaRaw <= target
+    const minsRaw = parseInt(horaRaw.split(':')[0])*60 + parseInt(horaRaw.split(':')[1]);
+    const minsTarget = parseInt(target.split(':')[0])*60 + parseInt(target.split(':')[1]);
+    const delta = minsTarget - minsRaw;
+    if (delta >= 0 && delta <= tol) return target;
+  }
+  // También aplicar redondeo ±15′ clásico por si viene 08:45 para 09:00 (ya cubierto arriba con delta)
+  let [h,m] = horaRaw.split(':').map(Number);
+  let horaNorm = horaRaw;
+  if (m >= 45) { h = (h + 1) % 24; horaNorm = String(h).padStart(2,'0') + ':00'; }
+  else if (m <= 15) { horaNorm = String(h).padStart(2,'0') + ':00'; }
+  if (permitidas.includes(horaNorm)) return horaNorm;
+  return null;
+}
+function validarHorarioJornada(horaIngresoNorm, horaEgresoNorm) {
+  const permitidas = obtenerSalidasPermitidas(horaIngresoNorm);
+  if (!permitidas.includes(horaEgresoNorm)) return false;
+  const horas = getRoundedHours(horaIngresoNorm, horaEgresoNorm);
+  return horas === 2 || horas === 4;
+}
+function calcularHorasEgresoConTolerancia(horaIngreso, horaSalidaReal) {
+  // Devuelve 2 o 4 si está dentro de la tolerancia temprana, 0 si no
+  const target = normalizarHoraEgreso(horaSalidaReal, horaIngreso);
+  if (!target) return 0;
+  const diffReal = calcularMinutosRango(horaIngreso, horaSalidaReal);
+  const diffTarget = calcularMinutosRango(horaIngreso, target);
+  if (diffTarget === 120 && diffReal >= 105 && diffReal <= 120) return 2;
+  if (diffTarget === 240 && diffReal >= 210 && diffReal <= 240) return 4;
+  const h = getRoundedHours(horaIngreso, target);
+  return (h === 2 || h === 4) ? h : 0;
+}
+function calcularHorasJornadaRestringida(horaIngreso, horaSalidaReal) {
+  // Según especificación: si sale tarde, el excedente se pierde
+  // 2hs: entre 2h00 y 3h29 → computa 2h (avisa pérdida)
+  // 4hs: 4h30 → computa 4h
+  // Se mantiene también la tolerancia temprana: 2hs desde 1h45 (105′) y 4hs desde 3h30 (210′)
+  const diff = calcularMinutosRango(horaIngreso, horaSalidaReal);
+  if (diff < 105) return { horas: 0, advertencia: null };
+  if (diff >= 105 && diff < 210) {
+    // 1h45 a 3h29 → 2hs
+    if (diff > 120) {
+      const extra = diff - 120;
+      return { horas: 2, advertencia: `Saliste ${extra}′ tarde. Esos ${extra}′ se pierden: se computan 2hs (regla 2h a 3h29 → 2hs).` };
+    }
+    if (diff < 120) {
+      const adelanto = 120 - diff;
+      if (adelanto <= 15) return { horas: 2, advertencia: null }; // dentro de 15′ antes, sin aviso
+    }
+    return { horas: 2, advertencia: null };
+  }
+  if (diff >= 210 && diff <= 270) {
+    // 3h30 a 4h30 → 4hs
+    if (diff > 240) {
+      const extra = diff - 240;
+      return { horas: 4, advertencia: `Saliste ${extra}′ tarde. Esos ${extra}′ se pierden: se computan 4hs (regla 4h30 → 4hs).` };
+    }
+    if (diff < 240 && (240 - diff) <= 30) return { horas: 4, advertencia: null };
+    return { horas: 4, advertencia: null };
+  }
+  if (diff > 270 && diff <= 300) {
+    // Más de 4h30 hasta 5h → aún 4hs con pérdida
+    const extra = diff - 240;
+    return { horas: 4, advertencia: `Trabajaste ${Math.floor(diff/60)}h${String(diff%60).padStart(2,'0')}′. Solo se computan 4hs, se pierden ${extra}′.` };
+  }
+  // Fuera de rangos definidos, caer al cálculo clásico por si hay casos excepcionales
+  const calc = getRoundedHours(horaIngreso, horaSalidaReal);
+  if (calc === 2 || calc === 4) return { horas: calc, advertencia: null };
+  return { horas: 0, advertencia: 'Jornada fuera de horario válido (no alcanza 1h45 para 2hs).' };
+}
+function formatearAdvertenciaTardanza(horaIngreso, horaSalidaReal) {
+  const res = calcularHorasJornadaRestringida(horaIngreso, horaSalidaReal);
+  return res.advertencia;
+}
+function poblarOpcionesEgreso(registroId) {
+  const reg = registros.find(r => r.id === registroId);
+  const select = document.getElementById('egreso-hora');
+  if (!reg || !select) return;
+  const permitidas = obtenerSalidasPermitidas(reg.horaIngreso);
+  select.innerHTML = '';
+  if (permitidas.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = ''; opt.disabled = true; opt.selected = true; opt.textContent = 'Ingreso fuera de horario permitido';
+    select.appendChild(opt);
+    return;
+  }
+  const ph = document.createElement('option');
+  ph.value = ''; ph.disabled = true; ph.selected = true; ph.textContent = 'Seleccione salida';
+  select.appendChild(ph);
+  permitidas.forEach(h => {
+    const opt = document.createElement('option');
+    opt.value = h;
+    const es2hs = h === permitidas[0];
+    const tol = es2hs ? 15 : 30;
+    const horas = es2hs ? '2' : '4';
+    opt.textContent = `${h} hs (${horas}hs, admite hasta ${tol}′ antes: desde ${String(parseInt(h.split(':')[0])*60+parseInt(h.split(':')[1])-tol).toString().padStart(2,'0')})`;
+    // Formatear desde correctamente
+    const minsTarget = parseInt(h.split(':')[0])*60 + parseInt(h.split(':')[1]);
+    const minsDesde = minsTarget - tol;
+    const hhDesde = String(Math.floor(minsDesde/60)).padStart(2,'0');
+    const mmDesde = String(minsDesde%60).padStart(2,'0');
+    opt.textContent = `${h} hs (${horas}hs, admite desde ${hhDesde}:${mmDesde})`;
+    select.appendChild(opt);
+  });
+  const msg = document.getElementById('msg-egreso-horario');
+  if (msg) {
+    const d1 = permitidas[0], d2 = permitidas[1];
+    const mins1 = parseInt(d1.split(':')[0])*60+parseInt(d1.split(':')[1])-15;
+    const mins2 = parseInt(d2.split(':')[0])*60+parseInt(d2.split(':')[1])-30;
+    const desde1 = String(Math.floor(mins1/60)).padStart(2,'0')+':'+String(mins1%60).padStart(2,'0');
+    const desde2 = String(Math.floor(mins2/60)).padStart(2,'0')+':'+String(mins2%60).padStart(2,'0');
+    msg.textContent = `Ingreso ${reg.horaIngreso} → ${d1} (desde ${desde1}, 15′ antes) o ${d2} (desde ${desde2}, 30′ antes).`;
+  }
+}
+
 async function registerIngreso() {
   const socioId = document.getElementById('ingreso-socio-filtered').value;
   const fecha = document.getElementById('ingreso-fecha').value;
-  const responsable = document.getElementById('ingreso-responsable').value.trim();
+  // Responsable vinculado al login (colección configuracion). Si aún no está cargado, intenta tomar el input como fallback.
+  const responsableInput = (document.getElementById('ingreso-responsable').value || '').trim();
+  const responsable = (nombreResponsableActual && nombreResponsableActual.trim().length >= 3) ? nombreResponsableActual : responsableInput;
+  if (!responsable || responsable.length < 3) {
+    showToast('No hay responsable vinculado. Configuralo en tu perfil (Configuración > Responsable de Jornada) o entra nuevamente para definirlo.', 'error');
+    openModalResponsableConfig();
+    return;
+  }
   const horaIngresoRaw = document.getElementById('ingreso-hora').value;
 
   // Leer trabajadores y la tarea elegida individualmente para cada uno.
@@ -767,14 +940,11 @@ async function registerIngreso() {
     return;
   }
 
-  // Lógica de redondeo: ±15 minutos de la hora exacta (ej: 7:45 -> 8:00, 8:15 -> 8:00)
-  let [h, m] = horaIngresoRaw.split(':').map(Number);
-  let horaIngreso = horaIngresoRaw;
-  if (m >= 45) {
-    h = (h + 1) % 24;
-    horaIngreso = `${String(h).padStart(2, '0')}:00`;
-  } else if (m <= 15) {
-    horaIngreso = `${String(h).padStart(2, '0')}:00`;
+  // Validación horario restringido: solo 07:00 u 08:00 con redondeo ±15′
+  const horaIngreso = normalizarHoraIngreso(horaIngresoRaw);
+  if (!horaIngreso) {
+    showToast('Horario de ingreso no permitido. Solo se permite 07:00 (06:45–07:15) u 08:00 (07:45–08:15). Fuera de ese rango no se permite el ingreso.', 'error');
+    return;
   }
 
   const currentResp = document.getElementById('ingreso-responsable').value;
@@ -784,6 +954,7 @@ async function registerIngreso() {
   try {
     for (const trabajadorNombre of trabajadores) {
       const id = 'reg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+      const tareaInicial = asignaciones.get(trabajadorNombre);
       const nuevoIngreso = {
         id,
         socioId,
@@ -793,7 +964,8 @@ async function registerIngreso() {
         horaIngreso,
         horaSalida: '',
         horasTrabajadas: 0,
-        tarea: asignaciones.get(trabajadorNombre),
+        tarea: tareaInicial,
+        segmentosTarea: [{ tarea: tareaInicial, desde: horaIngreso, hasta: null, creadoEn: new Date().toISOString() }],
         firma: '',
         estado: 'activo'
       };
@@ -820,7 +992,11 @@ async function registerIngreso() {
 
     // Reiniciar formulario manteniendo al responsable
     document.getElementById('form-ingreso').reset();
-    document.getElementById('ingreso-responsable').value = currentResp;
+    // Restaurar responsable vinculado (reset lo borra pese a ser readonly)
+    if (nombreResponsableActual) {
+      try { document.getElementById('ingreso-responsable').value = currentResp || nombreResponsableActual; } catch(e){}
+    }
+    actualizarCampoResponsableUI();
     setupAsistenciaForms();
 
     // Las entregas de obra se registran inmediatamente después del ingreso,
@@ -843,7 +1019,33 @@ async function submitEgresoWithSignature() {
     const esUltimaSalidaDeLaFecha = !registros.some(r =>
       r.id !== id && r.fecha === reg.fecha && r.estado === 'activo'
     );
-    const calculated = getRoundedHours(reg.horaIngreso, horaSalida);
+    // Validación horario restringido con redondeo temprano y tardanza (20′ tarde se pierde)
+    // 2hs: 1h45–3h29 → 2hs (avisa), 4hs: 3h30–4h30 → 4hs (avisa si sale tarde)
+    const resultado = calcularHorasJornadaRestringida(reg.horaIngreso, horaSalida);
+    if (resultado.horas === 0) {
+      // Intentar normalizar para mensaje amigable
+      const horaSalidaNorm = normalizarHoraEgreso(horaSalida, reg.horaIngreso);
+      if (!horaSalidaNorm) {
+        const permitidas = obtenerSalidasPermitidas(reg.horaIngreso);
+        const d1 = permitidas[0], d2 = permitidas[1];
+        const mins1 = parseInt(d1.split(':')[0])*60+parseInt(d1.split(':')[1])-15;
+        const mins2 = parseInt(d2.split(':')[0])*60+parseInt(d2.split(':')[1])-30;
+        const desde1 = String(Math.floor(mins1/60)).padStart(2,'0')+':'+String(mins1%60).padStart(2,'0');
+        const desde2 = String(Math.floor(mins2/60)).padStart(2,'0')+':'+String(mins2%60).padStart(2,'0');
+        showToast(`Hora no permitida. Para ingreso ${reg.horaIngreso} solo ${d1} (desde ${desde1}) o ${d2} (desde ${desde2}), hasta 3h29→2hs y 4h30→4hs.`, 'error');
+      } else {
+        showToast(resultado.advertencia || 'Jornada fuera de rango válido.', 'error');
+      }
+      return;
+    }
+    const calculated = resultado.horas;
+    if (resultado.advertencia) {
+      showToast('⚠️ ' + resultado.advertencia, 'info');
+    }
+    const horaSalidaNorm = normalizarHoraEgreso(horaSalida, reg.horaIngreso) || horaSalida;
+    // Para registro, guardar la hora real de salida pero el cómputo es el restringido (2 o 4)
+    // Si salió tarde, los minutos extra se pierden (se computa solo 2 o 4)
+    const advertenciaTexto = resultado.advertencia ? ' (' + resultado.advertencia + ')' : '';
     
     if (calculated === 0) {
       closeEgresoModal();
@@ -858,11 +1060,17 @@ async function submitEgresoWithSignature() {
     const firma = signatureCanvas.toDataURL();
 
     try {
+      // Cerrar segmento abierto de tareas a la hora de salida
+      let segmentosCierre = Array.isArray(reg.segmentosTarea) ? [...reg.segmentosTarea] : [{ tarea: reg.tarea, desde: reg.horaIngreso, hasta: null }];
+      for (let i = segmentosCierre.length - 1; i >= 0; i--) {
+        if (!segmentosCierre[i].hasta) { segmentosCierre[i] = { ...segmentosCierre[i], hasta: horaSalidaNorm }; break; }
+      }
       const egresoData = {
-        horaSalida,
+        horaSalida: horaSalidaNorm,
         horasTrabajadas: calculated,
         firma,
-        estado: 'finalizado'
+        estado: 'finalizado',
+        segmentosTarea: segmentosCierre
       };
 
       if (!navigator.onLine) {
@@ -2131,6 +2339,8 @@ async function guardarNuevasTareas() {
       return;
     }
     await db.collection('config').doc('catalogoTareas').set(data);
+    // Si el modal de edición de tarea está abierto, refrescar sus opciones
+    try { if (!document.getElementById('modal-editar-tarea')?.classList.contains('hidden')) { const sel = document.getElementById('editar-tarea-select'); if (sel) cargarOpcionesEditarTarea(sel.value); } } catch(e){}
     showToast(`${agregadas.length} tarea(s) agregada(s) al catálogo.`, 'success');
     registrarLog('Catálogo de tareas', `Se agregaron: ${agregadas.join(', ')}.`);
   } catch (error) {
@@ -2157,10 +2367,11 @@ function setupAsistenciaForms() {
   document.getElementById('ingreso-trabajadores-checkboxes').innerHTML = '<p class="text-xs text-slate-400 text-center py-2">Seleccione un socio primero</p>';
   document.getElementById('ingreso-fecha').value = new Date().toISOString().split('T')[0];
   
-  const ahora = new Date();
-  const hh = String(ahora.getHours()).padStart(2, '0');
-  const mm = String(ahora.getMinutes()).padStart(2, '0');
-  document.getElementById('ingreso-hora').value = `${hh}:${mm}`; // Asegúrate de que este ID exista en tu HTML
+  // Horario restringido: por defecto 07:00 (si es temprano) u 08:00
+  const ahoraH = new Date().getHours();
+  const porDefecto = (ahoraH < 8) ? '07:00' : '08:00';
+  const ingresoHoraEl = document.getElementById('ingreso-hora');
+  if (ingresoHoraEl) ingresoHoraEl.value = porDefecto;
 
   renderJornadasActivas();
 }
@@ -2287,7 +2498,8 @@ function renderJornadasActivas() {
           <h4 class="text-sm font-bold text-slate-800">${act.trabajadorNombre}</h4>
         </div>
         <p class="text-xs text-slate-500 mt-0.5">Ingresó: ${formatDateString(act.fecha)} a las ${act.horaIngreso} hs</p>
-        <p class="text-xs italic text-slate-400 mt-1">Tarea: ${act.tarea}</p>
+        <div class="flex items-center gap-1.5 mt-1"><p class="text-xs italic text-slate-400">Tarea: <span class="font-semibold text-slate-600">${act.tarea}</span></p><button type="button" onclick="openEditarTareaModal('${act.id}')" class="p-1 hover:bg-slate-200 rounded-lg transition" title="Cambiar tarea"><i data-lucide="pencil" class="w-3.5 h-3.5 text-slate-500"></i></button></div>
+        ${act.segmentosTarea && act.segmentosTarea.length > 1 ? `<div class="mt-1.5 flex flex-wrap gap-1 max-w-[320px]">${act.segmentosTarea.map((s,i)=>`<span class="text-[9px] px-1.5 py-0.5 rounded-full border ${i===act.segmentosTarea.length-1 ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-bold' : 'bg-white border-slate-200 text-slate-500' }">${s.tarea} ${s.desde}${s.hasta ? '→'+s.hasta : '→…'}</span>`).join('')}</div>` : ''}
       </div>
       <div class="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
         <button type="button" onclick="MaquinasHerramientas.abrirDesdeRegistroJornada('${act.id}')" class="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1">
@@ -2302,6 +2514,112 @@ function renderJornadasActivas() {
     container.appendChild(card);
   });
   lucide.createIcons();
+}
+
+// ============================================================
+//  EDITAR TAREA DE JORNADA ACTIVA (después de comenzada)
+//  Permite reasignar la tarea sin cerrar la jornada.
+//  Guarda en Firestore: registros/{id} merge {tarea, tareaActualizadaEn, tareaActualizadaPor}
+// ============================================================
+function cargarOpcionesEditarTarea(seleccionada) {
+  const select = document.getElementById('editar-tarea-select');
+  if (!select) return;
+  const tareas = obtenerTareasOrdenadas();
+  select.innerHTML = '';
+  if (tareas.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No hay tareas — agregá una con +';
+    opt.disabled = true;
+    opt.selected = true;
+    select.appendChild(opt);
+    return;
+  }
+  tareas.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t;
+    if (t === seleccionada) opt.selected = true;
+    select.appendChild(opt);
+  });
+}
+
+function openEditarTareaModal(registroId) {
+  const reg = registros.find(r => r.id === registroId);
+  if (!reg) { showToast('Jornada no encontrada.', 'error'); return; }
+  if (reg.estado !== 'activo') { showToast('Solo se puede cambiar la tarea de jornadas en curso.', 'error'); return; }
+  document.getElementById('editar-tarea-registro-id').value = registroId;
+  document.getElementById('lbl-editar-tarea-trabajador').textContent = reg.trabajadorNombre + ' (Socio ' + reg.socioId + ')';
+  document.getElementById('lbl-editar-tarea-actual').textContent = reg.tarea || 'SIN TAREA';
+  cargarOpcionesEditarTarea(reg.tarea);
+  const msg = document.getElementById('msg-editar-tarea');
+  if (msg) msg.textContent = '';
+  document.getElementById('modal-editar-tarea').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeEditarTareaModal() {
+  document.getElementById('modal-editar-tarea').classList.add('hidden');
+}
+
+async function submitEditarTarea() {
+  const registroId = document.getElementById('editar-tarea-registro-id').value;
+  const nuevaTarea = (document.getElementById('editar-tarea-select').value || '').trim();
+  const reg = registros.find(r => r.id === registroId);
+  if (!reg) { showToast('Jornada no encontrada.', 'error'); return; }
+  if (!nuevaTarea) { showToast('Seleccioná una tarea.', 'error'); return; }
+  const tareaNormalizada = normalizarListaTareas([nuevaTarea])[0] || nuevaTarea.toUpperCase();
+  if (tareaNormalizada === reg.tarea) {
+    showToast('La tarea ya está asignada.', 'info');
+    closeEditarTareaModal();
+    return;
+  }
+  const tareaAnterior = reg.tarea;
+  const cuenta = cuentaFirmando();
+  const horaSistema = obtenerHoraSistemaHHMM();
+  // Cerrar segmento abierto y abrir uno nuevo a la hora del sistema
+  let segmentosActualizados = Array.isArray(reg.segmentosTarea) ? [...reg.segmentosTarea] : [{ tarea: tareaAnterior, desde: reg.horaIngreso, hasta: null, creadoEn: reg.creadoEn || new Date().toISOString() }];
+  // Cerrar el último abierto
+  for (let i = segmentosActualizados.length - 1; i >= 0; i--) {
+    if (!segmentosActualizados[i].hasta) { segmentosActualizados[i] = { ...segmentosActualizados[i], hasta: horaSistema }; break; }
+  }
+  segmentosActualizados.push({ tarea: tareaNormalizada, desde: horaSistema, hasta: null, creadoEn: new Date().toISOString() });
+  const patch = {
+    tarea: tareaNormalizada,
+    segmentosTarea: segmentosActualizados,
+    tareaAnterior: tareaAnterior,
+    tareaActualizadaEn: new Date().toISOString(),
+    tareaActualizadaPor: cuenta ? (cuenta.email || cuenta.uid) : 'desconocido',
+    tareaActualizadaPorUid: cuenta ? cuenta.uid : '',
+    ultimoCambioTareaHora: horaSistema
+  };
+  const btn = document.querySelector('#modal-editar-tarea button[type="submit"]');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Guardando...'; lucide.createIcons(); }
+  try {
+    if (!navigator.onLine) {
+      OfflineSync.enqueue('registros', registroId, 'merge', patch);
+      const idx = registros.findIndex(r => r.id === registroId);
+      if (idx >= 0) registros[idx] = { ...registros[idx], ...patch };
+      renderJornadasActivas();
+      renderHistorialTable && renderHistorialTable();
+      showToast('Tarea cambiada offline: ' + tareaNormalizada + '. Se sincronizará.', 'info');
+      registrarLog('Cambio de Tarea (Offline)', `Jornada ${registroId} (${reg.trabajadorNombre}) tarea: "${tareaAnterior}" → "${tareaNormalizada}" offline.`);
+      closeEditarTareaModal();
+      return;
+    }
+    await db.collection('registros').doc(registroId).set(patch, { merge: true });
+    const idx = registros.findIndex(r => r.id === registroId);
+    if (idx >= 0) registros[idx] = { ...registros[idx], ...patch };
+    renderJornadasActivas();
+    if (typeof renderHistorialTable === 'function') renderHistorialTable();
+    showToast('Tarea actualizada a: ' + tareaNormalizada, 'success');
+    registrarLog('Cambio de Tarea', `Jornada ${registroId} (${reg.trabajadorNombre}, Socio ${reg.socioId}) tarea: "${tareaAnterior}" → "${tareaNormalizada}" por ${patch.tareaActualizadaPor}`);
+    closeEditarTareaModal();
+  } catch (err) {
+    showToast('Error al cambiar tarea: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i> Guardar'; lucide.createIcons(); }
+  }
 }
 
 let pulsacionEliminarIngreso = null;
@@ -2411,6 +2729,8 @@ async function openEgresoModal(registroId) {
 
   document.getElementById('egreso-registro-id').value = registroId;
   document.getElementById('lbl-egreso-trabajador').textContent = reg.trabajadorNombre;
+  // Poblar salidas permitidas (2 o 4hs después)
+  poblarOpcionesEgreso(registroId);
   
   const ahora = new Date();
   const hh = String(ahora.getHours()).padStart(2, '0');
@@ -2884,6 +3204,9 @@ function cerrarAltaPinEnLogin() {
 
 function ofrecerAltaPinEnLogin() {
   try {
+    // Si el responsable aún no está configurado, priorizar ese modal (evita doble overlay)
+    const modalResp = document.getElementById('modal-responsable-config');
+    if (modalResp && !modalResp.classList.contains('hidden')) return;
     const cuenta = pinConfigCuenta();
     if (!cuenta) return;
     if (!navigator.onLine) return;                                  // sin conexión no hay forma de verificar: no se molesta
@@ -2915,6 +3238,208 @@ async function confirmarAltaPinEnLogin() {
   cerrarAltaPinEnLogin();
   if (typeof renderizarEstadoPinConfiguracion === 'function') renderizarEstadoPinConfiguracion();
 }
+
+
+// ============================================================
+//  RESPONSABLE VINCULADO AL LOGIN - COLECCIÓN configuracion
+//  Al entrar por primera vez con email+pass, además del PIN offline,
+//  se solicita el nombre del responsable (capataz/delegado).
+//  Se guarda en Firebase: configuracion/{uid} = { nombreResponsable, email, uid, actualizadoEn }
+//  Y se usa automáticamente en cada Jornada (campo ingreso-responsable).
+// ============================================================
+function normalizarNombreResponsable(nombre) {
+  return (nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function actualizarCampoResponsableUI() {
+  const input = document.getElementById('ingreso-responsable');
+  const badge = document.getElementById('lbl-responsable-vinculado');
+  const msg = document.getElementById('msg-responsable-jornada');
+  if (!input) return;
+  if (nombreResponsableActual) {
+    input.value = nombreResponsableActual;
+    input.readOnly = true;
+    input.classList.remove('bg-white');
+    input.classList.add('bg-slate-50', 'text-slate-700');
+    if (badge) { badge.classList.remove('hidden'); badge.innerHTML = '<i data-lucide="link-2" class="w-3 h-3 inline"></i> Vinculado a tu login'; }
+    if (msg) msg.textContent = 'Tomado automáticamente de tu perfil (' + nombreResponsableActual + '). Para cambiarlo, tocá el lápiz o andá a Configuración.';
+  } else {
+    input.value = '';
+    input.readOnly = false;
+    input.classList.remove('bg-slate-50');
+    input.classList.add('bg-white');
+    if (badge) badge.classList.add('hidden');
+    if (msg) msg.textContent = 'Cargando responsable vinculado... Inicia sesión para configurarlo.';
+  }
+  if (window.lucide) try { lucide.createIcons(); } catch(e){}
+}
+
+function iniciarSyncResponsable(user) {
+  if (!db || !user) return;
+  if (responsableUnsubscribe) { try { responsableUnsubscribe(); } catch(e){} responsableUnsubscribe = null; }
+  const uid = user.uid;
+  // Escucha en tiempo real: db.collection('configuracion').doc(uid)
+  responsableUnsubscribe = db.collection('configuracion').doc(uid).onSnapshot((doc) => {
+    if (doc.exists && doc.data().nombreResponsable) {
+      nombreResponsableActual = normalizarNombreResponsable(doc.data().nombreResponsable);
+      // Cache local para modo offline (clave por uid)
+      try { localStorage.setItem('covimt9_responsable_' + uid, nombreResponsableActual); } catch(e){}
+    } else {
+      // Fallback offline: intenta localStorage
+      try {
+        const cached = localStorage.getItem('covimt9_responsable_' + uid);
+        if (cached) nombreResponsableActual = normalizarNombreResponsable(cached);
+      } catch(e){}
+    }
+    actualizarCampoResponsableUI();
+    // También actualiza el campo en modal de configuración si está abierto
+    const cfgInput = document.getElementById('cfg-nombre-responsable');
+    if (cfgInput && nombreResponsableActual) cfgInput.value = nombreResponsableActual;
+    const cfgCuenta = document.getElementById('cfg-responsable-cuenta');
+    if (cfgCuenta) cfgCuenta.textContent = user.email || user.uid;
+  }, (err) => {
+    console.warn('[responsable] Error sync configuracion:', err);
+    // Fallback a localStorage si hay error de permisos/offline
+    try {
+      const cached = localStorage.getItem('covimt9_responsable_' + uid);
+      if (cached) { nombreResponsableActual = normalizarNombreResponsable(cached); actualizarCampoResponsableUI(); }
+    } catch(e){}
+  });
+  // Intento inmediato de carga one-time para no esperar snapshot
+  db.collection('configuracion').doc(uid).get().then(doc => {
+    if (doc.exists && doc.data().nombreResponsable) {
+      nombreResponsableActual = normalizarNombreResponsable(doc.data().nombreResponsable);
+      actualizarCampoResponsableUI();
+    }
+  }).catch(()=>{});
+}
+
+async function verificarYConfigurarResponsable() {
+  const user = firebase.auth().currentUser;
+  if (!user || !db) return;
+  const uid = user.uid;
+  // Si ya tenemos nombre en memoria, no molestar
+  if (nombreResponsableActual && nombreResponsableActual.trim().length >= 3) return;
+  // Consultar Firebase (o cache offline)
+  try {
+    if (!navigator.onLine) {
+      const cached = localStorage.getItem('covimt9_responsable_' + uid);
+      if (cached && cached.trim().length >= 3) { nombreResponsableActual = normalizarNombreResponsable(cached); actualizarCampoResponsableUI(); return; }
+      // Offline sin cache: no se puede pedir nombre porque no se puede guardar en configuracion -> avisar
+      console.log('[responsable] Offline y sin responsable cacheado, se pedirá al volver online');
+      return;
+    }
+    const doc = await db.collection('configuracion').doc(uid).get();
+    if (doc.exists && doc.data().nombreResponsable && String(doc.data().nombreResponsable).trim().length >= 3) {
+      nombreResponsableActual = normalizarNombreResponsable(doc.data().nombreResponsable);
+      actualizarCampoResponsableUI();
+      return;
+    }
+    // No existe -> solicitar al usuario (primera vez)
+    openModalResponsableConfig();
+  } catch (e) {
+    console.warn('[responsable] verificarYConfigurarResponsable error:', e);
+  }
+}
+
+function openModalResponsableConfig() {
+  const modal = document.getElementById('modal-responsable-config');
+  if (!modal) return;
+  const cuenta = cuentaFirmando();
+  const lbl = document.getElementById('lbl-responsable-cuenta');
+  if (lbl) lbl.textContent = cuenta ? (cuenta.email || cuenta.uid) : '—';
+  const input = document.getElementById('input-nombre-responsable');
+  if (input) { input.value = nombreResponsableActual || ''; setTimeout(()=>{ try{ input.focus(); }catch(e){} }, 80); }
+  const msg = document.getElementById('msg-responsable-config');
+  if (msg) { msg.classList.add('hidden'); msg.textContent = ''; }
+  modal.classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeModalResponsableConfig() {
+  const modal = document.getElementById('modal-responsable-config');
+  if (modal) modal.classList.add('hidden');
+  // Si cerró sin guardar y sigue sin responsable, re-ofrecer PIN si corresponde
+  if (!nombreResponsableActual) {
+    showToast('Podés configurar el responsable luego desde Configuración > Responsable de Jornada.', 'info');
+  }
+  setTimeout(() => { try { ofrecerAltaPinEnLogin(); } catch(e){} }, 200);
+}
+
+async function guardarNombreResponsable(origen) {
+  const input = document.getElementById('input-nombre-responsable');
+  const msg = document.getElementById('msg-responsable-config');
+  const btn = document.getElementById('btn-guardar-responsable');
+  if (!input) return false;
+  const nombre = normalizarNombreResponsable(input.value);
+  if (!nombre || nombre.length < 3) {
+    if (msg) { msg.textContent = 'Escribí al menos 3 letras. Ej: JUAN PÉREZ'; msg.classList.remove('hidden'); }
+    input.focus();
+    return false;
+  }
+  if (!/^[A-ZÁÉÍÓÚÑÜ .\'-]+$/i.test(nombre)) {
+    // Permitir letras, espacios, puntos, guiones, apóstrofes
+    // No bloquear estricto, solo avisar si hay caracteres raros
+  }
+  const user = firebase.auth().currentUser;
+  if (!user) {
+    if (msg) { msg.textContent = 'Sesión expirada. Volvé a iniciar sesión.'; msg.classList.remove('hidden'); }
+    return false;
+  }
+  const uid = user.uid;
+  const data = {
+    nombreResponsable: nombre,
+    email: user.email || '',
+    uid: uid,
+    actualizadoEn: new Date().toISOString(),
+    origen: origen || 'modal-login'
+  };
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Guardando...'; lucide.createIcons(); }
+  try {
+    if (!navigator.onLine) {
+      // Guardar offline en cola y en cache local
+      OfflineSync.enqueue('configuracion', uid, 'set', data);
+      nombreResponsableActual = nombre;
+      try { localStorage.setItem('covimt9_responsable_' + uid, nombre); } catch(e){}
+      actualizarCampoResponsableUI();
+      closeModalResponsableConfig();
+      showToast('Responsable guardado offline. Se sincronizará en configuracion/' + uid + ' al tener conexión.', 'info');
+      registrarLog('Responsable (Offline)', 'Nombre responsable guardado offline: ' + nombre + ' (' + (user.email||uid) + ')');
+      setTimeout(() => { try { ofrecerAltaPinEnLogin(); } catch(e){} }, 300);
+      return true;
+    }
+    await db.collection('configuracion').doc(uid).set(data, { merge: true });
+    nombreResponsableActual = nombre;
+    try { localStorage.setItem('covimt9_responsable_' + uid, nombre); } catch(e){}
+    actualizarCampoResponsableUI();
+    closeModalResponsableConfig();
+    showToast('Responsable configurado: ' + nombre, 'success');
+    registrarLog('Configuración Responsable', 'Nombre responsable guardado en configuracion/' + uid + ': ' + nombre + ' (' + (user.email||uid) + ') desde ' + (origen||'modal'));
+    // Tras configurar responsable, ofrecer PIN si aún no tiene (flujo primer login)
+    setTimeout(() => { try { ofrecerAltaPinEnLogin(); } catch(e){} }, 300);
+    return true;
+  } catch (err) {
+    if (msg) { msg.textContent = 'Error al guardar: ' + err.message; msg.classList.remove('hidden'); }
+    showToast('Error al guardar responsable: ' + err.message, 'error');
+    return false;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Guardar y continuar'; lucide.createIcons(); }
+  }
+}
+
+async function guardarNombreResponsableDesdeConfig() {
+  const input = document.getElementById('cfg-nombre-responsable');
+  const msg = document.getElementById('msg-cfg-responsable');
+  if (!input) return;
+  // Reusar lógica pero tomando valor de cfg input
+  const temp = document.getElementById('input-nombre-responsable');
+  const oldVal = temp ? temp.value : '';
+  if (temp) temp.value = input.value;
+  const ok = await guardarNombreResponsable('config-modal');
+  if (temp) temp.value = oldVal;
+  if (ok && msg) { msg.textContent = 'Responsable actualizado a ' + normalizarNombreResponsable(input.value); msg.classList.remove('hidden'); msg.classList.remove('text-red-600'); msg.classList.add('text-emerald-700'); }
+}
+
 
 async function quitarPinDelDispositivo() {
   const cuenta = pinConfigCuenta();
@@ -3410,7 +3935,7 @@ function renderHistorialTable() {
         }
         <div class="text-[9px] text-slate-400 mt-0.5">${r.horaIngreso} hs ${r.horaSalida ? `- ${r.horaSalida} hs` : ''}</div>
       </td>
-      <td class="py-3 px-6 text-slate-500 max-w-xs truncate">${r.tarea}</td>
+      <td class="py-3 px-6 text-slate-500 max-w-xs"><div class="truncate">${r.tarea}</div>${r.segmentosTarea && r.segmentosTarea.length > 1 ? `<div class="mt-1 flex flex-wrap gap-1">${obtenerHorasPorTarea(r).map(s=>`<span class="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">${s.tarea} ${s.desde}→${s.hasta||'…'} (${s.horas}hs)</span>`).join('')}</div>` : ''}</td>
       <td class="py-3 px-6 text-center">
         ${esActivo 
           ? `<i data-lucide="minus" class="w-5 h-5 mx-auto text-slate-300"></i>`
@@ -4206,6 +4731,55 @@ function obtenerCondicionSocioInforme(socio, fechaReferencia) {
   return { causa: 'Por edad', detalle: 'Núcleo sin integrantes habilitados por edad' };
 }
 
+
+// ============================================================
+//  TIEMPOS POR TAREAS - FRACCIONAMIENTO EN JORNADA ACTIVA
+//  La hora del sistema al momento del cambio se usa como corte.
+//  Cada registro guarda segmentosTarea: [{tarea, desde, hasta}]
+// ============================================================
+function obtenerHoraSistemaHHMM() {
+  const ahora = new Date();
+  return String(ahora.getHours()).padStart(2,'0') + ':' + String(ahora.getMinutes()).padStart(2,'0');
+}
+function calcularMinutosRango(desde, hasta) {
+  if (!desde || !hasta) return 0;
+  const [h1,m1] = desde.split(':').map(Number);
+  const [h2,m2] = hasta.split(':').map(Number);
+  let diff = (h2*60+m2) - (h1*60+m1);
+  if (diff < 0) diff += 24*60;
+  return diff;
+}
+function obtenerHorasPorTarea(registro) {
+  const horasTotal = Number(registro.horasTrabajadas);
+  const totalComputadas = Number.isFinite(horasTotal) && horasTotal > 0 ? horasTotal : getRoundedHours(registro.horaIngreso, registro.horaSalida);
+  if (totalComputadas === 0) return [];
+  const segs = Array.isArray(registro.segmentosTarea) && registro.segmentosTarea.length > 0 ? registro.segmentosTarea : null;
+  if (!segs) {
+    const tarea = normalizarListaTareas([registro.tarea])[0] || 'SIN TAREA ESPECIFICADA';
+    return [{ tarea, horas: totalComputadas, desde: registro.horaIngreso, hasta: registro.horaSalida }];
+  }
+  // Calcular minutos por segmento (si el último está abierto, usar horaSalida o desde)
+  let totalMin = 0;
+  const conMin = segs.map(s => {
+    const d = s.desde || registro.horaIngreso;
+    const h = s.hasta || registro.horaSalida || d;
+    const mins = calcularMinutosRango(d, h);
+    totalMin += mins;
+    return { tarea: s.tarea, desde: d, hasta: h, mins };
+  });
+  if (totalMin === 0) {
+    const tarea = normalizarListaTareas([registro.tarea])[0] || 'SIN TAREA ESPECIFICADA';
+    return [{ tarea, horas: totalComputadas, desde: registro.horaIngreso, hasta: registro.horaSalida }];
+  }
+  return conMin.map(s => ({
+    tarea: normalizarListaTareas([s.tarea])[0] || 'SIN TAREA ESPECIFICADA',
+    horas: Math.round((totalComputadas * s.mins / totalMin) * 100) / 100,
+    desde: s.desde,
+    hasta: s.hasta,
+    mins: s.mins
+  }));
+}
+
 function generarInformeMensualPDF(tipoDetalle = 'resumen-detalle') {
   if (!modoEdicion) return;
   const anio = document.getElementById('planilla-anio')?.value || periodoAdminAnio;
@@ -4241,30 +4815,33 @@ function generarInformeMensualPDF(tipoDetalle = 'resumen-detalle') {
   let horasTotales = 0;
 
   registrosMes.forEach(r => {
-    const horas = getRoundedHours(r.horaIngreso, r.horaSalida);
-    const tarea = normalizarListaTareas([r.tarea])[0] || 'SIN TAREA ESPECIFICADA';
-    const trabajador = cleanText(r.trabajadorNombre || '') || 'SIN NOMBRE';
-    const socioId = String(r.socioId || '');
-    const trabajadorKey = `${socioId}|${trabajador}`;
     const fecha = String(r.fecha || '');
-    horasTotales += horas;
+    const socioId = String(r.socioId || '');
+    const trabajador = cleanText(r.trabajadorNombre || '') || 'SIN NOMBRE';
+    const trabajadorKey = `${socioId}|${trabajador}`;
+    const segmentosHoras = obtenerHorasPorTarea(r);
+    let horasRegistroTotal = 0;
+    segmentosHoras.forEach(s => horasRegistroTotal += s.horas);
+    horasTotales += horasRegistroTotal;
     sociosConActividad.add(socioId);
     trabajadoresConActividad.add(trabajadorKey);
     diasConActividad.add(fecha);
-
-    if (!tareas.has(tarea)) tareas.set(tarea, { tarea, dias: new Set(), trabajadores: new Set(), socios: new Set(), horas: 0 });
-    const resumen = tareas.get(tarea);
-    resumen.dias.add(fecha);
-    resumen.trabajadores.add(trabajadorKey);
-    resumen.socios.add(socioId);
-    resumen.horas += horas;
-
-    const claveDia = `${fecha}|${tarea}`;
-    if (!tareasPorDia.has(claveDia)) tareasPorDia.set(claveDia, { fecha, tarea, trabajadores: new Map(), socios: new Set(), horas: 0 });
-    const detalle = tareasPorDia.get(claveDia);
-    detalle.trabajadores.set(trabajadorKey, trabajador);
-    detalle.socios.add(socioId);
-    detalle.horas += horas;
+    segmentosHoras.forEach(seg => {
+      const horas = seg.horas;
+      const tarea = seg.tarea;
+      if (!tareas.has(tarea)) tareas.set(tarea, { tarea, dias: new Set(), trabajadores: new Set(), socios: new Set(), horas: 0 });
+      const resumen = tareas.get(tarea);
+      resumen.dias.add(fecha);
+      resumen.trabajadores.add(trabajadorKey);
+      resumen.socios.add(socioId);
+      resumen.horas += horas;
+      const claveDia = `${fecha}|${tarea}`;
+      if (!tareasPorDia.has(claveDia)) tareasPorDia.set(claveDia, { fecha, tarea, trabajadores: new Map(), socios: new Set(), horas: 0 });
+      const detalle = tareasPorDia.get(claveDia);
+      detalle.trabajadores.set(trabajadorKey, trabajador);
+      detalle.socios.add(socioId);
+      detalle.horas += horas;
+    });
   });
 
   const { jsPDF } = window.jspdf;
