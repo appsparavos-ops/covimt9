@@ -1,56 +1,48 @@
-/* C9 - Orientación adaptativa: ambas apps siguen al dispositivo */
+/* C9 - Orientación adaptativa V2: apps siguen 100% al dispositivo */
 html, body {
-  /* Permite que el contenido fluya en cualquier orientación */
   width: 100%;
   min-height: 100%;
   min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  /* Permitir rotación sin bloqueo */
+  transform: none !important;
 }
-
-/* Suaviza el cambio de orientación */
+/* Viewport dinámico para PWA */
+html { scrollbar-gutter: stable; }
+/* Landscape: aprovechar ancho, no encoger */
 @media (orientation: landscape) {
-  /* Aprovecha el ancho disponible */
   .max-w-7xl { max-width: 100% !important; }
-  main { padding-top: 0.75rem !important; padding-bottom: 0.75rem !important; }
-}
-
-/* Móviles en horizontal con poca altura (ej: celular girado) */
-@media (orientation: landscape) and (max-height: 500px) {
-  header .h-16 { height: 3rem !important; }
-  header h1 { font-size: 0.95rem !important; }
-  /* Mantén la barra móvil visible pero compacta y scrolleable horizontalmente */
+  main { padding-top: 0.75rem !important; padding-bottom: 2rem !important; }
+  /* Header no debe ser fixed que tape */
+  header { position: sticky; top: 0; z-index: 40; }
+  /* Tabs móviles scrolleables en horizontal */
   .md\:hidden.bg-brand-800,
-  .md\:hidden.mh-mobile-nav {
-    overflow-x: auto;
-    white-space: nowrap;
+  .md\:hidden.mh-mobile-nav,
+  nav.md\:hidden {
+    overflow-x: auto !important;
+    white-space: nowrap !important;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    padding-top: 0.25rem !important;
-    padding-bottom: 0.25rem !important;
+    flex-wrap: nowrap !important;
   }
-  .md\:hidden.bg-brand-800::-webkit-scrollbar,
-  .md\:hidden.mh-mobile-nav::-webkit-scrollbar { display: none; }
-  #app-container { overflow-y: auto; }
-  main { overflow-y: visible !important; }
-  /* Grids más densos en horizontal */
-  .grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-4 {
-    grid-template-columns: repeat(4, minmax(0,1fr)) !important;
-  }
-  /* Canvas de firmas más alto en landscape */
-  #signature-canvas, #responsable-signature-canvas, .mh-signature-box canvas { height: 200px !important; }
+  .md\:hidden.bg-brand-800::-webkit-scrollbar { display: none; }
 }
-
-/* Tablet/escritorio en landscape ya se maneja con breakpoints md/lg, solo afinamos */
-@media (orientation: landscape) and (min-width: 768px) and (max-height: 900px) {
-  header { position: sticky; top: 0; z-index: 40; }
-  main { max-height: calc(100dvh - 4rem); overflow-y: auto; }
+/* Móvil en horizontal con poca altura */
+@media (orientation: landscape) and (max-height: 500px) {
+  header .h-16 { height: 3rem !important; min-height: 3rem !important; }
+  header h1 { font-size: 0.95rem !important; }
+  #app-container { overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
+  main { overflow-y: visible !important; max-height: none !important; }
+  .grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0,1fr)) !important; }
+  #signature-canvas, #responsable-signature-canvas, .mh-signature-box canvas { height: 200px !important; width: 100% !important; }
+  /* Evita zoom forzado iOS */
+  input, select, textarea { font-size: 16px !important; }
 }
-
-/* Portrait: nada que forzar, solo asegurar scroll estable */
 @media (orientation: portrait) {
   html { scrollbar-gutter: stable; }
 }
-
-/* Evita que iOS haga zoom forzado al rotar */
 @supports (-webkit-touch-callout: none) {
   body { -webkit-text-size-adjust: 100%; }
 }
+/* Fix: algunos Android WebView bloquean landscape si html tiene overflow hidden */
+body { overflow-x: hidden; overflow-y: auto; }

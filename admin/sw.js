@@ -11,7 +11,7 @@ const STATIC_ASSETS = [
   'bitacora.html',
   'bitacora.css?v=20261015-1',
   'bitacora.js?v=20261015-1',
-  'cooperativa.js?v=20261017-5',
+  'cooperativa.js?v=20261028-revert-horario-orientacion',
   'offlineSync.js?v=20261015-12',
   'firebaseConfig.js',
   'pinos.png?v=20261014-25',

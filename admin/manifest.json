@@ -10,7 +10,10 @@
   "background_color": "#f8fafc",
   "theme_color": "#065f46",
   "lang": "es-UY",
-  "categories": ["productivity", "business"],
+  "categories": [
+    "productivity",
+    "business"
+  ],
   "icons": [
     {
       "src": "icons/icon-72x72.png?v=20261014-25",
@@ -68,14 +71,24 @@
       "short_name": "Jornada",
       "description": "Fichar ingreso o egreso de obra",
       "url": "index.html#tab-asistencia",
-      "icons": [{ "src": "icons/icon-96x96.png?v=20261014-25", "sizes": "96x96" }]
+      "icons": [
+        {
+          "src": "icons/icon-96x96.png?v=20261014-25",
+          "sizes": "96x96"
+        }
+      ]
     },
     {
       "name": "Planilla Mensual",
       "short_name": "Planilla",
       "description": "Ver estado de horas del mes",
       "url": "index.html#tab-planilla",
-      "icons": [{ "src": "icons/icon-96x96.png?v=20261014-25", "sizes": "96x96" }]
+      "icons": [
+        {
+          "src": "icons/icon-96x96.png?v=20261014-25",
+          "sizes": "96x96"
+        }
+      ]
     }
   ]
 }

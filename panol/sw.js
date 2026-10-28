@@ -8,7 +8,7 @@
 // es comun a todo el origen: si los dos SW se limpian por prefijo 'covimt9-',
 // el que se activa borra la cache del otro y le rompe el modo offline.
 const APP_NAMESPACE = 'covimt9-panol-';
-const CACHE_NAME = APP_NAMESPACE + 'v49-pin-en-login';
+const CACHE_NAME = APP_NAMESPACE + 'v50-revert-horario-orientacion';
 
 // Caches que esta app creo con nombres antiguos (prefijo compartido). Se listan
 // una por una, a proposito: asi podemos borrar las nuestras sin tocar nunca la
@@ -24,12 +24,14 @@ const STATIC_ASSETS = [
   'bitacora.html',
   'bitacora.css?v=20261015-1',
   'bitacora.js?v=20261015-1',
-  'cooperativa.js?v=20261017-5',
+  'cooperativa.js?v=20261028-revert-horario-orientacion',
   'maquinas.js?v=20261017-5',
   'offlineSync.js?v=20261016-1',
+  'orientation.css?v=20261028-orientacion',
+  'orientation.js?v=20261028-orientacion',
   'firebaseConfig.js',
   // Manifiesto propio de la Etapa 2 (debe coincidir con el ?v= del <link rel="manifest">)
-  'manifest.json?v=20261016-1',
+  'manifest.json?v=20261028-orientacion',
   'pinos.png?v=20261014-25',
   'icons/favicon.ico?v=20261016-2',
   'icons/icon-192x192.png?v=20261016-2',
