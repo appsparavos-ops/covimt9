@@ -2821,18 +2821,12 @@ function prepararVerificacionFirma() {
 
   if (_firmaModoOffline()) {
     label.textContent = 'PIN de este dispositivo';
-    msg.textContent = 'Estás sin conexión: la firma se valida contra el PIN guardado en este dispositivo y queda marcada como verificación local.';
+    msg.textContent = 'Estás sin conexión: la firma se valida contra el PIN guardado en este dispositivo y queda marcada como verificación local. Se sincronizará al tener conexión.';
     if (bloque) bloque.classList.add('hidden');
   } else {
     label.textContent = 'Contraseña de tu cuenta';
     msg.textContent = 'Se verifica contra Firebase antes de guardar la firma. Sin la contraseña correcta la jornada queda abierta.';
-    if (bloque) {
-      const hay = cuenta && localStorage.getItem(_firmaClavePin(cuenta.uid));
-      bloque.classList.remove('hidden');
-      document.getElementById('msg-firma-responsable-pin').textContent = hay
-        ? 'Ya hay un PIN cargado en este dispositivo. Dejá el campo vacío para conservarlo, o escribí uno nuevo (4 a 8 dígitos) para reemplazarlo.'
-        : 'Todavía no hay PIN en este dispositivo. Definilo acá (se guarda sólo si la contraseña de arriba verifica bien) y así vas a poder firmar aunque el obrador se quede sin señal.';
-    }
+    if (bloque) bloque.classList.add('hidden');
   }
 }
 
