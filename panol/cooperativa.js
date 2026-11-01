@@ -2969,6 +2969,12 @@ function renderizarEstadoPinConfiguracion() {
     msg += ' Quedan ' + Math.ceil((hasta - Date.now()) / 1000) + ' segundos del bloqueo por intentos fallidos.';
   }
   caja.textContent = msg;
+  const pillPin = document.getElementById('cfg-pill-pin');
+  if (pillPin) {
+    pillPin.textContent = !cuenta
+      ? 'Sin sesión'
+      : (guardado ? 'PIN guardado en este dispositivo' : 'Sin PIN en este dispositivo');
+  }
   caja.classList.toggle('bg-emerald-50', Boolean(guardado));
   caja.classList.toggle('border-emerald-200', Boolean(guardado));
   caja.classList.toggle('text-emerald-800', Boolean(guardado));
@@ -4068,6 +4074,18 @@ function openConfigModal() {
   const inputClave = document.getElementById('clave-modo-edicion');
   if (inputClave) inputClave.value = '';
   renderComisionesManagement();
+  // Resúmenes del acordeón + sección de horas objetivo abierta por defecto.
+  const pillObj = document.getElementById('cfg-pill-objetivo');
+  if (pillObj) {
+    const hs = input ? input.value : '';
+    pillObj.textContent = `${hs !== '' ? hs : '—'} hs · ${MESES_ADMIN[Number(periodoAdminMes)]} ${periodoAdminAnio}`;
+  }
+  const pillResp = document.getElementById('cfg-pill-responsable');
+  if (pillResp) {
+    const nom = (document.getElementById('cfg-nombre-responsable')?.value || '').trim();
+    pillResp.textContent = nom || 'Sin definir';
+  }
+  if (typeof abrirCfgAccordion === 'function') abrirCfgAccordion('cfg-acc-objetivo');
   document.getElementById('modal-config').classList.remove('hidden');
   if (typeof renderizarEstadoPinConfiguracion === 'function') renderizarEstadoPinConfiguracion();
 }
@@ -4075,6 +4093,33 @@ function openConfigModal() {
 function closeConfigModal() {
   document.getElementById('modal-config').classList.add('hidden');
 }
+// --- Acordeón del modal Configuración -------------------------------------
+// Una sola sección abierta a la vez para aprovechar el espacio en pantalla.
+function abrirCfgAccordion(id) {
+  const items = document.querySelectorAll('#config-acordeon .cfg-acc');
+  items.forEach((el) => {
+    const abierto = el.id === id;
+    el.classList.toggle('open', abierto);
+    const btn = el.querySelector('.cfg-acc-head');
+    if (btn) btn.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+  });
+  const abiertoEl = document.getElementById(id);
+  if (abiertoEl) {
+    const scroll = document.querySelector('#modal-config .cfg-scroll');
+    if (scroll) {
+      const top = abiertoEl.offsetTop - 8;
+      if (scroll.scrollTop > top) scroll.scrollTo({ top: top, behavior: 'smooth' });
+    }
+  }
+}
+
+function toggleCfgAccordion(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.classList.contains('open')) abrirCfgAccordion(null);
+  else abrirCfgAccordion(id);
+}
+
 
 function closeNucleoModal() {
   document.getElementById('modal-nucleo').classList.add('hidden');
