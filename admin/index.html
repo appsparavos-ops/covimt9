@@ -58,6 +58,130 @@
       touch-action: none;
       cursor: crosshair;
     }
+    /* ===== Modal Configuración: layout con cuerpo scrolleable ===== */
+    #modal-config .cfg-panel {
+      display: flex;
+      flex-direction: column;
+      max-height: 90vh;
+      max-height: 90dvh;
+    }
+    #modal-config .cfg-head { flex: 0 0 auto; }
+    #modal-config form {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+    }
+    #modal-config .cfg-scroll {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: .75rem;
+    }
+    #modal-config .cfg-footer {
+      flex: 0 0 auto;
+      display: flex;
+      justify-content: flex-end;
+      gap: .75rem;
+      padding: .75rem 1.25rem;
+      border-top: 1px solid #f1f5f9;
+      background: #fff;
+      box-shadow: 0 -6px 14px -10px rgba(15, 23, 42, .35);
+    }
+
+    /* ===== Acordeón ===== */
+    .cfg-acc-list { display: flex; flex-direction: column; gap: .5rem; }
+    .cfg-acc-hint {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: .68rem;
+      color: #94a3b8;
+      margin-bottom: .5rem;
+    }
+    .cfg-acc {
+      border: 1px solid #e2e8f0;
+      border-radius: .85rem;
+      background: #fff;
+      overflow: hidden;
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+    .cfg-acc.open {
+      border-color: #a7f3d0;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+    }
+    .cfg-acc-head {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: .65rem;
+      padding: .7rem .8rem;
+      background: #f8fafc;
+      border: 0;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+      transition: background .15s ease;
+    }
+    .cfg-acc-head:hover { background: #f1f5f9; }
+    .cfg-acc-head:focus-visible { outline: 2px solid #10b981; outline-offset: -2px; }
+    .cfg-acc.open .cfg-acc-head { background: #fff; }
+    .cfg-acc-ico {
+      flex: 0 0 auto;
+      width: 1.85rem;
+      height: 1.85rem;
+      border-radius: .6rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .cfg-acc-txt { flex: 1 1 auto; min-width: 0; }
+    .cfg-acc-title {
+      display: block;
+      font-size: .82rem;
+      font-weight: 700;
+      color: #1e293b;
+      line-height: 1.25;
+    }
+    .cfg-acc-sub {
+      display: block;
+      font-size: .68rem;
+      color: #64748b;
+      margin-top: .1rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cfg-acc-chev {
+      flex: 0 0 auto;
+      display: inline-flex;
+      color: #94a3b8;
+      transition: transform .22s ease;
+    }
+    .cfg-acc.open .cfg-acc-chev { transform: rotate(180deg); }
+    .cfg-acc-body {
+      display: none;
+      padding: .85rem .8rem .95rem;
+      border-top: 1px solid #f1f5f9;
+    }
+    .cfg-acc.open .cfg-acc-body {
+      display: block;
+      animation: cfgAccIn .18s ease-out;
+    }
+    @keyframes cfgAccIn {
+      from { opacity: 0; transform: translateY(-3px); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cfg-acc-chev, .cfg-acc.open .cfg-acc-body { transition: none; animation: none; }
+    }
   </style>
 </head>
 <body class="h-full flex flex-col font-sans antialiased text-slate-800 bg-slate-50/50">
@@ -1016,128 +1140,180 @@
       </div>
     </div>
 
-    <!-- Modal Configuración Horas Objetivo -->
+    <!-- Modal Configuración (acordeón) -->
     <div id="modal-config" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100">
-        <div class="bg-brand-700 text-white p-4 flex items-center justify-between">
+      <div class="cfg-panel bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100">
+        <div class="cfg-head bg-brand-700 text-white p-4 flex items-center justify-between">
           <h3 class="font-bold flex items-center gap-2">
-            <i data-lucide="settings" class="w-5 h-5 text-emerald-300"></i> Meta Mensual Global
+            <i data-lucide="settings" class="w-5 h-5 text-emerald-300"></i> Configuración
           </h3>
-          <button onclick="closeConfigModal()" class="text-white/80 hover:text-white transition">
+          <button type="button" onclick="closeConfigModal()" class="text-white/80 hover:text-white transition">
             <i data-lucide="x" class="w-6 h-6"></i>
           </button>
         </div>
-        <form onsubmit="event.preventDefault(); saveConfig();" class="p-6 space-y-4">
-          <!-- Toggle Modo Edición (Ahora al principio) -->
-          <div class="flex items-center justify-between p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
-            <div>
-              <p class="text-sm font-semibold text-amber-900">Modo Edición</p>
-              <p class="text-[11px] text-amber-700 mt-0.5">Permite gestionar Socios &amp; Núcleos</p>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" id="config-modo-edicion" class="sr-only peer" onchange="onToggleModoEdicion(this)">
-              <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
-          <!-- Campo clave de acceso (aparece solo al activar el toggle) -->
-          <div id="campo-clave-edicion" class="hidden">
-            <label for="clave-modo-edicion" class="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">
-              <i data-lucide="key-round" class="w-3.5 h-3.5 text-amber-600"></i> Clave de acceso
-            </label>
-            <input type="password" id="clave-modo-edicion" placeholder="••••••••"
-              class="w-full rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 transition"
-              autocomplete="off">
-          </div>
-
-          <!-- Sección Restringida: Aparece solo si Modo Edición está activo -->
-          <div id="config-restricted-section" class="hidden space-y-4">
-            <div class="border-t border-slate-100 pt-4">
-              <label for="config-objetivo" class="block text-xs font-semibold text-slate-500 mb-1">Horas objetivo del período</label>
-              <input type="number" id="config-objetivo" min="0" max="200" required class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
-              <p class="text-[11px] text-slate-500 mt-1">Período seleccionado: <strong id="config-objetivo-periodo" class="text-brand-700">-</strong>. Use 0 para meses de licencia.</p>
-              <p class="text-[10px] text-slate-400 mt-1">El cambio se guarda sólo para este mes y no modifica períodos anteriores.</p>
-            </div>
-
-            
-            <div class="border-t border-slate-100 pt-4">
-              <h4 class="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
-                <i data-lucide="user-check" class="w-4 h-4 text-brand-600"></i> Responsable de Jornada (vinculado al login)
-              </h4>
-              <p class="text-[11px] text-slate-500 mb-3">Nombre que se usa automáticamente al abrir una jornada. Queda en tu perfil (Auth displayName, sin colección nueva). Cambialo acá y se refleja en todos tus dispositivos.</p>
-              <p class="text-xs font-semibold text-slate-500 mb-1">Cuenta: <span id="cfg-responsable-cuenta" class="text-slate-700">—</span></p>
+        <form onsubmit="event.preventDefault(); saveConfig();">
+          <div class="cfg-scroll">
+            <!-- Toggle Modo Edición -->
+            <div class="flex items-center justify-between p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
               <div>
-                <label for="cfg-nombre-responsable" class="block text-xs font-semibold text-slate-500 mb-1">Nombre del responsable</label>
-                <div class="flex gap-2">
-                  <input type="text" id="cfg-nombre-responsable" maxlength="80" placeholder="Ej. JUAN PÉREZ" class="flex-1 rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition uppercase">
-                  <button type="button" onclick="guardarNombreResponsableDesdeConfig()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-2"><i data-lucide="save" class="w-3.5 h-3.5"></i> Guardar</button>
-                </div>
-                <p id="msg-cfg-responsable" class="text-[11px] text-slate-500 mt-1 hidden"></p>
+                <p class="text-sm font-semibold text-amber-900">Modo Edición</p>
+                <p class="text-[11px] text-amber-700 mt-0.5">Permite gestionar Socios &amp; Núcleos</p>
               </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="config-modo-edicion" class="sr-only peer" onchange="onToggleModoEdicion(this)">
+                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+              </label>
             </div>
 
-<div class="border-t border-slate-100 pt-4">
-                            <h4 class="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
-                              <i data-lucide="key-round" class="w-4 h-4 text-emerald-600"></i> PIN para firmar sin conexión
-                            </h4>
-                            <p class="text-[11px] text-slate-500 mb-3">Definilo acá, con conexión, antes de la primera jornada. El PIN queda guardado sólo en este dispositivo y es lo que habilita a firmar el cierre de jornada cuando no hay señal.</p>
-                            <div id="pin-cfg-estado" class="text-[11px] rounded-xl border p-3 mb-3 bg-slate-50 border-slate-200 text-slate-600">Comprobando este dispositivo...</div>
-                            <p class="text-xs font-semibold text-slate-500 mb-1">Cuenta que va a firmar: <span id="pin-cfg-cuenta" class="text-slate-700">—</span></p>
-                            <div class="space-y-3">
-                              <div>
-                                <label for="pin-cfg-clave" class="block text-xs font-semibold text-slate-500 mb-1">Contraseña de tu cuenta</label>
-                                <input type="password" id="pin-cfg-clave" autocomplete="current-password" placeholder="Se verifica en Firebase y no se guarda" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
-                              </div>
-                              <div class="flex gap-2">
-                                <div class="flex-1">
-                                  <label for="pin-cfg-pin" class="block text-xs font-semibold text-slate-500 mb-1">PIN nuevo (4 a 8 dígitos)</label>
-                                  <input type="password" id="pin-cfg-pin" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="••••" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
-                                </div>
-                                <div class="flex-1">
-                                  <label for="pin-cfg-pin2" class="block text-xs font-semibold text-slate-500 mb-1">Repetir PIN</label>
-                                  <input type="password" id="pin-cfg-pin2" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="••••" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
-                                </div>
-                              </div>
-                              <p id="msg-pin-cfg" class="text-[11px] text-slate-500">Se guarda sólo si la contraseña verifica contra Firebase. Después sirve para firmar aunque estés sin señal, y podés reemplazarlo o quitarlo cuando quieras.</p>
-                              <div class="flex gap-2">
-                                <button type="button" id="btn-pin-cfg-guardar" onclick="guardarPinDesdeConfiguracion()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Guardar PIN</button>
-                                <button type="button" id="btn-pin-cfg-quitar" onclick="quitarPinDelDispositivo()" class="hidden px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold transition">Quitar de este dispositivo</button>
-                              </div>
-                            </div>
-                          </div>
-
-            <h4 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-              <i data-lucide="list-checks" class="w-4 h-4 text-purple-600"></i> Gestión de Comisiones
-            </h4>
-            <div class="space-y-3">
-              <div>
-                <label for="new-commission-name" class="block text-xs font-semibold text-slate-500 mb-1">Añadir Nueva Comisión</label>
-                <div class="flex gap-2">
-                  <input type="text" id="new-commission-name" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 transition" placeholder="Ej. Comisión de Cultura">
-                  <button type="button" onclick="addCommission()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold transition">Añadir</button>
-                </div>
-              </div>
-              <div id="list-comisiones-management" class="space-y-2">
-                <!-- Las comisiones se renderizarán aquí dinámicamente -->
-                <p class="text-xs text-slate-400">Cargando comisiones...</p>
-              </div>
+            <!-- Campo clave de acceso (aparece solo al activar el toggle) -->
+            <div id="campo-clave-edicion" class="hidden">
+              <label for="clave-modo-edicion" class="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">
+                <i data-lucide="key-round" class="w-3.5 h-3.5 text-amber-600"></i> Clave de acceso
+              </label>
+              <input type="password" id="clave-modo-edicion" placeholder="••••••••"
+                class="w-full rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 transition"
+                autocomplete="off">
             </div>
 
-            <!-- Botón Acceso Bitácora -->
-            <div class="border-t border-slate-100 pt-4">
-              <h4 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                <i data-lucide="shield-alert" class="w-4 h-4 text-slate-600"></i> Auditoría
-              </h4>
-              <button type="button" onclick="location.href='bitacora.html'" class="w-full flex items-center justify-between p-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition shadow-sm">
-                <div class="flex items-center gap-2">
-                  <i data-lucide="scroll-text" class="w-4 h-4 text-emerald-400"></i>
-                  <span class="text-sm font-semibold">Ver Bitácora del Sistema</span>
+            <!-- Sección Restringida: acordeón (solo si Modo Edición está activo) -->
+            <div id="config-restricted-section" class="hidden">
+              <p class="cfg-acc-hint">
+                <i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5"></i>
+                Tocá cada sección para abrirla o cerrarla.
+              </p>
+              <div id="config-acordeon" class="cfg-acc-list">
+
+                <!-- 1) Horas objetivo -->
+                <div class="cfg-acc" id="cfg-acc-objetivo">
+                  <button type="button" class="cfg-acc-head" aria-expanded="false" aria-controls="cfg-acc-objetivo-body"
+                          onclick="toggleCfgAccordion('cfg-acc-objetivo')">
+                    <span class="cfg-acc-ico" style="background:#ecfdf5;color:#047857"><i data-lucide="target" class="w-4 h-4"></i></span>
+                    <span class="cfg-acc-txt">
+                      <span class="cfg-acc-title">Horas objetivo del período</span>
+                      <span class="cfg-acc-sub" id="cfg-pill-objetivo">—</span>
+                    </span>
+                    <span class="cfg-acc-chev"><i data-lucide="chevron-down" class="w-4 h-4"></i></span>
+                  </button>
+                  <div class="cfg-acc-body" id="cfg-acc-objetivo-body">
+                    <input type="number" id="config-objetivo" aria-label="Horas objetivo del período" min="0" max="200" required class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                    <p class="text-[11px] text-slate-500 mt-1">Período seleccionado: <strong id="config-objetivo-periodo" class="text-brand-700">-</strong>. Use 0 para meses de licencia.</p>
+                    <p class="text-[10px] text-slate-400 mt-1">El cambio se guarda sólo para este mes y no modifica períodos anteriores. Se aplica con <strong>Guardar</strong>.</p>
+                  </div>
                 </div>
-                <i data-lucide="chevron-right" class="w-4 h-4 opacity-50"></i>
-              </button>
+
+                <!-- 2) Responsable de Jornada -->
+                <div class="cfg-acc" id="cfg-acc-responsable">
+                  <button type="button" class="cfg-acc-head" aria-expanded="false" aria-controls="cfg-acc-responsable-body"
+                          onclick="toggleCfgAccordion('cfg-acc-responsable')">
+                    <span class="cfg-acc-ico" style="background:#eef2ff;color:#4338ca"><i data-lucide="user-check" class="w-4 h-4"></i></span>
+                    <span class="cfg-acc-txt">
+                      <span class="cfg-acc-title">Responsable de Jornada</span>
+                      <span class="cfg-acc-sub" id="cfg-pill-responsable">—</span>
+                    </span>
+                    <span class="cfg-acc-chev"><i data-lucide="chevron-down" class="w-4 h-4"></i></span>
+                  </button>
+                  <div class="cfg-acc-body" id="cfg-acc-responsable-body">
+                    <p class="text-[11px] text-slate-500 mb-3">Nombre que se usa automáticamente al abrir una jornada. Queda en tu perfil (Auth displayName, sin colección nueva). Cambialo acá y se refleja en todos tus dispositivos.</p>
+                    <p class="text-xs font-semibold text-slate-500 mb-1">Cuenta: <span id="cfg-responsable-cuenta" class="text-slate-700">—</span></p>
+                    <label for="cfg-nombre-responsable" class="block text-xs font-semibold text-slate-500 mb-1">Nombre del responsable</label>
+                    <div class="flex gap-2">
+                      <input type="text" id="cfg-nombre-responsable" maxlength="80" placeholder="Ej. JUAN PÉREZ" class="flex-1 rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition uppercase">
+                      <button type="button" onclick="guardarNombreResponsableDesdeConfig()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-2"><i data-lucide="save" class="w-3.5 h-3.5"></i> Guardar</button>
+                    </div>
+                    <p id="msg-cfg-responsable" class="text-[11px] text-slate-500 mt-1 hidden"></p>
+                  </div>
+                </div>
+
+                <!-- 3) PIN para firmar sin conexión -->
+                <div class="cfg-acc" id="cfg-acc-pin">
+                  <button type="button" class="cfg-acc-head" aria-expanded="false" aria-controls="cfg-acc-pin-body"
+                          onclick="toggleCfgAccordion('cfg-acc-pin')">
+                    <span class="cfg-acc-ico" style="background:#ecfdf5;color:#059669"><i data-lucide="key-round" class="w-4 h-4"></i></span>
+                    <span class="cfg-acc-txt">
+                      <span class="cfg-acc-title">PIN para firmar sin conexión</span>
+                      <span class="cfg-acc-sub" id="cfg-pill-pin">Comprobando este dispositivo…</span>
+                    </span>
+                    <span class="cfg-acc-chev"><i data-lucide="chevron-down" class="w-4 h-4"></i></span>
+                  </button>
+                  <div class="cfg-acc-body" id="cfg-acc-pin-body">
+                    <p class="text-[11px] text-slate-500 mb-3">Definilo acá, con conexión, antes de la primera jornada. El PIN queda guardado sólo en este dispositivo y es lo que habilita a firmar el cierre de jornada cuando no hay señal.</p>
+                    <div id="pin-cfg-estado" class="text-[11px] rounded-xl border p-3 mb-3 bg-slate-50 border-slate-200 text-slate-600">Comprobando este dispositivo...</div>
+                    <p class="text-xs font-semibold text-slate-500 mb-3">Cuenta que va a firmar: <span id="pin-cfg-cuenta" class="text-slate-700">—</span></p>
+                    <div class="space-y-3">
+                      <div>
+                        <label for="pin-cfg-clave" class="block text-xs font-semibold text-slate-500 mb-1">Contraseña de tu cuenta</label>
+                        <input type="password" id="pin-cfg-clave" autocomplete="current-password" placeholder="Se verifica en Firebase y no se guarda" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                      </div>
+                      <div class="grid grid-cols-2 gap-2">
+                        <div>
+                          <label for="pin-cfg-pin" class="block text-xs font-semibold text-slate-500 mb-1">PIN nuevo</label>
+                          <input type="password" id="pin-cfg-pin" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="4 a 8 dígitos" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                        </div>
+                        <div>
+                          <label for="pin-cfg-pin2" class="block text-xs font-semibold text-slate-500 mb-1">Repetir PIN</label>
+                          <input type="password" id="pin-cfg-pin2" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="••••" class="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                        </div>
+                      </div>
+                      <p id="msg-pin-cfg" class="text-[11px] text-slate-500">Se guarda sólo si la contraseña verifica contra Firebase. Después sirve para firmar aunque estés sin señal, y podés reemplazarlo o quitarlo cuando quieras.</p>
+                      <div class="flex gap-2">
+                        <button type="button" id="btn-pin-cfg-guardar" onclick="guardarPinDesdeConfiguracion()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Guardar PIN</button>
+                        <button type="button" id="btn-pin-cfg-quitar" onclick="quitarPinDelDispositivo()" class="hidden px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold transition">Quitar de este dispositivo</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 4) Gestión de Comisiones -->
+                <div class="cfg-acc" id="cfg-acc-comisiones">
+                  <button type="button" class="cfg-acc-head" aria-expanded="false" aria-controls="cfg-acc-comisiones-body"
+                          onclick="toggleCfgAccordion('cfg-acc-comisiones')">
+                    <span class="cfg-acc-ico" style="background:#f5f3ff;color:#7c3aed"><i data-lucide="list-checks" class="w-4 h-4"></i></span>
+                    <span class="cfg-acc-txt">
+                      <span class="cfg-acc-title">Gestión de Comisiones</span>
+                      <span class="cfg-acc-sub">Alta y baja de comisiones</span>
+                    </span>
+                    <span class="cfg-acc-chev"><i data-lucide="chevron-down" class="w-4 h-4"></i></span>
+                  </button>
+                  <div class="cfg-acc-body" id="cfg-acc-comisiones-body">
+                    <label for="new-commission-name" class="block text-xs font-semibold text-slate-500 mb-1">Añadir Nueva Comisión</label>
+                    <div class="flex gap-2">
+                      <input type="text" id="new-commission-name" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 transition" placeholder="Ej. Comisión de Cultura">
+                      <button type="button" onclick="addCommission()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold transition">Añadir</button>
+                    </div>
+                    <div id="list-comisiones-management" class="space-y-2 mt-3">
+                      <!-- Las comisiones se renderizarán aquí dinámicamente -->
+                      <p class="text-xs text-slate-400">Cargando comisiones...</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 5) Auditoría -->
+                <div class="cfg-acc" id="cfg-acc-auditoria">
+                  <button type="button" class="cfg-acc-head" aria-expanded="false" aria-controls="cfg-acc-auditoria-body"
+                          onclick="toggleCfgAccordion('cfg-acc-auditoria')">
+                    <span class="cfg-acc-ico" style="background:#f1f5f9;color:#475569"><i data-lucide="shield-alert" class="w-4 h-4"></i></span>
+                    <span class="cfg-acc-txt">
+                      <span class="cfg-acc-title">Auditoría</span>
+                      <span class="cfg-acc-sub">Bitácora del sistema</span>
+                    </span>
+                    <span class="cfg-acc-chev"><i data-lucide="chevron-down" class="w-4 h-4"></i></span>
+                  </button>
+                  <div class="cfg-acc-body" id="cfg-acc-auditoria-body">
+                    <button type="button" onclick="location.href='bitacora.html'" class="w-full flex items-center justify-between p-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition shadow-sm">
+                      <div class="flex items-center gap-2">
+                        <i data-lucide="scroll-text" class="w-4 h-4 text-emerald-400"></i>
+                        <span class="text-sm font-semibold">Ver Bitácora del Sistema</span>
+                      </div>
+                      <i data-lucide="chevron-right" class="w-4 h-4 opacity-50"></i>
+                    </button>
+                  </div>
+                </div>
+
+              </div>
             </div>
           </div>
 
-          <div class="pt-2 flex justify-end gap-3">
+          <div class="cfg-footer">
             <button type="button" onclick="closeConfigModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 text-sm font-medium transition">Cancelar</button>
             <button type="submit" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition">Guardar</button>
           </div>

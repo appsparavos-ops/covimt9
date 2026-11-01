@@ -3,7 +3,7 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v40-pin-en-login';
+const CACHE_NAME = 'covimt9-v41-acordeon-config';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
@@ -11,7 +11,7 @@ const STATIC_ASSETS = [
   'bitacora.html',
   'bitacora.css?v=20261015-1',
   'bitacora.js?v=20261015-1',
-  'cooperativa.js?v=20261028-revert-horario-orientacion',
+  'cooperativa.js?v=20261101-selector-carpetas',
   'offlineSync.js?v=20261015-12',
   'firebaseConfig.js',
   'pinos.png?v=20261014-25',
