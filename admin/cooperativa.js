@@ -5459,3 +5459,16 @@ function toggleAutorizacionMenor(prefix) {
     document.getElementById(`${prefix}-autorizacion-menor`).checked = false;
   }
 }
+
+// --- ACCORDION CONFIG MODAL ---
+function toggleAccordion(id) {
+  const content = document.getElementById(id);
+  const icon = document.getElementById('icon-' + id);
+  if (!content) return;
+  const open = !content.classList.contains('hidden');
+  content.classList.toggle('hidden');
+  if (icon) {
+    icon.classList.toggle('rotate-180', !open);
+  }
+}
+
