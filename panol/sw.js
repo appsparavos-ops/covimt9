@@ -8,7 +8,7 @@
 // es comun a todo el origen: si los dos SW se limpian por prefijo 'covimt9-',
 // el que se activa borra la cache del otro y le rompe el modo offline.
 const APP_NAMESPACE = 'covimt9-panol-';
-const CACHE_NAME = APP_NAMESPACE + 'v53-selector-carpetas';
+const CACHE_NAME = APP_NAMESPACE + 'v54-config-accordion';
 
 // Caches que esta app creo con nombres antiguos (prefijo compartido). Se listan
 // una por una, a proposito: asi podemos borrar las nuestras sin tocar nunca la
