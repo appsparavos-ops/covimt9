@@ -4448,7 +4448,7 @@ function exportPlanillaPDF() {
   });
 
   const tableData = sociosOrdenados.map(s => {
-    const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
+    const objetivo = obtenerObjetivoHorasSocio(s, anio, mesNum);
     const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
     const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
     const comisionAsignada = obtenerComisionAsignadaNucleo(s);
@@ -5169,7 +5169,7 @@ function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
     // Constancia de cómo se validó la firma. Las jornadas viejas no traen el
     // campo: en ese caso no se imprime nada, para no mentir sobre el pasado.
     if (responsable.metodo) {
-      const verificado = new Date(responsible.fecha);
+      const verificado = new Date(responsable.fecha);
       const hora = isNaN(verificado) ? '' : ' · ' + verificado.toLocaleString('es-UY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       doc.setFontSize(7);
       if (responsable.metodo === 'pin-local') {
