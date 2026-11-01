@@ -1,3 +1,39 @@
+
+// ============================================================
+// Guardar PDF con selector de carpeta del sistema (File System Access API)
+// Permite elegir carpeta destino (ej. Obra-Covimt9/Planillas de Jornada).
+// Fallback a descarga tradicional si el navegador no lo soporta o se cancela.
+// ============================================================
+async function guardarPDFConSelector(nombreSugerido, doc) {
+  try {
+    const arraybuffer = doc.output('arraybuffer');
+    const handle = await window.showSaveFilePicker({
+      suggestedName: nombreSugerido,
+      types: [{
+        description: 'Documento PDF',
+        accept: { 'application/pdf': ['.pdf'] }
+      }]
+    });
+    const writable = await handle.createWritable();
+    await writable.write(arraybuffer);
+    await writable.close();
+    return true;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      // El usuario canceló el selector
+      return false;
+    }
+    // Fallback: descarga tradicional al navegador
+    try {
+      doc.save(nombreSugerido);
+      return true;
+    } catch (e2) {
+      console.error('Error guardando PDF:', e2);
+      return false;
+    }
+  }
+}
+
 // --- CONFIGURACIÓN E INICIALIZACIÓN ---
 let db = null;
 let socios = [];
@@ -4380,7 +4416,7 @@ function exportPlanillaCSV() {
 /**
  * Genera un PDF optimizado para impresión A4 con los datos de la planilla mensual.
  */
-function exportPlanillaPDF() {
+async function exportPlanillaPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
 
@@ -4526,7 +4562,7 @@ function exportPlanillaPDF() {
     }
   });
 
-  doc.save(`COVIMT9_Estado_Horas_${mesNum}_${anio}.pdf`);
+  await guardarPDFConSelector(`COVIMT9_Estado_Horas_${mesNum}_${anio}.pdf`, doc);
   showToast("Planilla PDF generada correctamente.", "success");
 }
 
@@ -4626,7 +4662,7 @@ function obtenerHorasPorTarea(registro) {
   }));
 }
 
-function generarInformeMensualPDF(tipoDetalle = 'resumen-detalle') {
+async function generarInformeMensualPDF(tipoDetalle = 'resumen-detalle') {
   if (!modoEdicion) return;
   const anio = document.getElementById('planilla-anio')?.value || periodoAdminAnio;
   const mes = document.getElementById('planilla-mes')?.value || periodoAdminMes;
@@ -4821,7 +4857,7 @@ function generarInformeMensualPDF(tipoDetalle = 'resumen-detalle') {
     doc.text(`Página ${pagina} de ${paginas}`, 196, 291, { align: 'right' });
   }
 
-  doc.save(`COVIMT9_Informe_Mensual_${mes}_${anio}.pdf`);
+  await guardarPDFConSelector(`COVIMT9_Informe_Mensual_${mes}_${anio}.pdf`, doc);
   showToast('Informe mensual generado correctamente.', 'success');
 }
 
@@ -4829,7 +4865,7 @@ function generarInformeMensualPDF(tipoDetalle = 'resumen-detalle') {
  * Genera un PDF específico para Tesorería con los socios que tuvieron pasaje de horas a tesorería en el mes.
  * Muestra las horas de deuda anterior que no pudieron ser cubiertas/recuperadas.
  */
-function exportReporteTesoreriaPDF() {
+async function exportReporteTesoreriaPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
   const anio = document.getElementById('planilla-anio').value;
@@ -4918,7 +4954,7 @@ function exportReporteTesoreriaPDF() {
   doc.text(`Total cobrado durante el período: ${formatHours(Math.round(totalCobradoMes))}`, 20, finalY + 6);
   doc.text(`Tesorería acumulada total: ${formatHours(Math.round(totalCobradoAntes + totalCobradoMes))}`, 20, finalY + 12);
 
-  doc.save(`COVIMT9_Tesoreria_${mesNum}_${anio}.pdf`);
+  await guardarPDFConSelector(`COVIMT9_Tesoreria_${mesNum}_${anio}.pdf`, doc);
   showToast("Estado de Tesorería generado correctamente.", "success");
 }
 
@@ -4974,7 +5010,7 @@ async function generarPDFJornadaSeleccionada() {
     return;
   }
   ocultarAlertaReporteJornada();
-  const generado = generarReporteJornadaPDF(fechaReporte, true);
+  const generado = await generarReporteJornadaPDF(fechaReporte, true);
   if (generado) closeReporteJornadaModal();
 }
 
@@ -4982,7 +5018,7 @@ async function generarPDFJornadaSeleccionada() {
  * Genera la planilla con las jornadas finalizadas (las que poseen egreso y firma).
  * Devuelve true cuando el archivo fue generado.
  */
-function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
+async function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
   const jornadasDelDia = registros
     .filter(r => r.fecha === fechaReporte && r.estado === 'finalizado')
     .slice();
@@ -5139,15 +5175,15 @@ function generarReporteJornadaPDF(fechaReporte, mostrarAlertaEnModal = false) {
     firmaY += altoBloqueResponsable;
   });
 
-  doc.save(`Jornada_COVIMT9_${fechaReporte}.pdf`);
-  showToast("PDF de la jornada generado correctamente.", "success");
-  return true;
+  const guardado = await guardarPDFConSelector(`Jornada_COVIMT9_${fechaReporte}.pdf`, doc);
+  if (guardado) showToast("PDF de la jornada generado correctamente.", "success");
+  return guardado;
 }
 
 /**
  * Genera un PDF individual para una jornada finalizada con todos los detalles y firma.
  */
-function descargarPDFJornada(recordId) {
+async function descargarPDFJornada(recordId) {
   const reg = registros.find(r => r.id === recordId);
   if (!reg || !reg.firma) {
     showToast("No se encontró el registro o la firma para generar el PDF.", "error");
@@ -5204,7 +5240,7 @@ function descargarPDFJornada(recordId) {
   doc.setTextColor(150, 150, 150);
   doc.text(`Documento oficial generado el ${new Date().toLocaleString()}`, 20, 285);
 
-  doc.save(`Comprobante_Jornada_${reg.socioId}_${reg.fecha}.pdf`);
+  await guardarPDFConSelector(`Comprobante_Jornada_${reg.socioId}_${reg.fecha}.pdf`, doc);
   showToast("PDF de jornada generado con éxito.", "success");
 }
 
