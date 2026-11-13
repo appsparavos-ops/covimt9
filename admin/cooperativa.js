@@ -3858,7 +3858,6 @@ function periodoPlanillaHabilitado(anio, mes) {
 //  - Las horas físicas solo pueden cubrir deuda, nunca generan remanente para comisión
 // ============================================================
 function calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, resHoras) {
-  console.log('[DEBUG calcularResultadoMes]', { socioId: s.id, comisionAsignada, tieneDeuda: (hist.deudaAnterior||0) > 0, objetivo, resHoras: { cubiertasPorComision: resHoras.cubiertasPorComision, computables: resHoras.computables, horasFisicasMes: resHoras.horasFisicasMes } });
   const tieneDeuda = (hist.deudaAnterior || 0) > 0;
   const deudaAnterior = hist.deudaAnterior || 0;
   const remanenteAnterior = hist.remanenteAnterior || 0;
