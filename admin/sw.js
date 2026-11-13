@@ -3,7 +3,7 @@
 //  Cache de archivos estáticos para funcionamiento offline
 // ============================================================
 
-const CACHE_NAME = 'covimt9-v41-acordeon-config';
+const CACHE_NAME = 'covimt9-v42-regla-comision-deuda';
 const STATIC_ASSETS = [
   // Admin App
   'index.html',
