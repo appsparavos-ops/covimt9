@@ -1574,6 +1574,7 @@ async function simularCierreMensual() {
 
       const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
       const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
+      const comisionAsignada = obtenerComisionAsignadaNucleo(s);
 
       // Compatibilidad: cualquier pendiente heredado se imputa al período que se cierra.
       const tesoreriaAntes = hist.tesoreriaAcumulada || 0;
@@ -1603,28 +1604,14 @@ async function simularCierreMensual() {
         continue;
       }
       
-      const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
-    const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
-    const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
-    const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-    const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva);
-      const totalCredito = resHoras.computables + hist.remanenteAnterior;
+      const resultadoCierre = calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, resHoras);
+      const { comprometidas: compCierre, computables: compCierreVal, saldoDelMes: saldoCierre, remanenteFinal: remCierre, deudaFinal: deudaCierre, pasajeProyectadoTesoreria: pasajeCierre } = resultadoCierre;
+      const comprometidas = compCierre;
+      const totalCredito = compCierreVal + hist.remanenteAnterior;
 
-      let remanenteFinal = 0;
-      let deudaFinal = 0;
-      let pasajeATesoreria = 0;
-
-      if (totalCredito >= comprometidas) {
-        remanenteFinal = totalCredito - comprometidas;
-      } else {
-        deudaFinal = comprometidas - totalCredito;
-        
-        const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
-        if (saldoTrasMesCorriente < hist.deudaAnterior) {
-          pasajeATesoreria = Math.max(0, deudaAnteriorEfectiva - saldoTrasMesCorriente);
-          deudaFinal = Math.max(0, deudaFinal - pasajeATesoreria);
-        }
-      }
+      let remanenteFinal = remCierre;
+      let deudaFinal = deudaCierre;
+      let pasajeATesoreria = pasajeCierre;
 
       // El pasaje ocurre contablemente en el último día del mes que se cierra.
       const tesoreriaCobradaEnPeriodo = cobroPendienteHeredado + pasajeATesoreria;
@@ -3871,6 +3858,7 @@ function periodoPlanillaHabilitado(anio, mes) {
 //  - Las horas físicas solo pueden cubrir deuda, nunca generan remanente para comisión
 // ============================================================
 function calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, resHoras) {
+  console.log('[DEBUG calcularResultadoMes]', { socioId: s.id, comisionAsignada, tieneDeuda: (hist.deudaAnterior||0) > 0, objetivo, resHoras: { cubiertasPorComision: resHoras.cubiertasPorComision, computables: resHoras.computables, horasFisicasMes: resHoras.horasFisicasMes } });
   const tieneDeuda = (hist.deudaAnterior || 0) > 0;
   const deudaAnterior = hist.deudaAnterior || 0;
   const remanenteAnterior = hist.remanenteAnterior || 0;
@@ -4048,7 +4036,7 @@ function renderPlanilla() {
       }
     }
     if (hist.remanenteAnterior > 0) {
-      obs.push(`Remanente arrastrado: ${hist.remanenteAnterior} hs`);
+      obs.push(`Remanente arrastrado: ${formatHours(hist.remanenteAnterior)}`);
     }
 
     const row = document.createElement('tr');
