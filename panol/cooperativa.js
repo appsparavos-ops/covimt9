@@ -3914,6 +3914,85 @@ function periodoPlanillaHabilitado(anio, mes) {
   return obtenerEstadoPeriodoPlanilla(anio, mes).habilitado;
 }
 
+
+// ============================================================
+//  CÁLCULO DE SALDO DEL MES - REGLAS DE COMISIÓN Y DEUDA
+//  - Sin comisión: horas físicas computan normalmente, se aplica objetivo + deuda
+//  - Con comisión + deuda: objetivo se cubre con comisión, horas físicas se aplican a deuda
+//  - Con comisión + sin deuda: objetivo se cubre con comisión, horas físicas no se computan
+//  - Las horas físicas solo pueden cubrir deuda, nunca generan remanente para comisión
+// ============================================================
+function calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, resHoras) {
+  const tieneDeuda = (hist.deudaAnterior || 0) > 0;
+  const deudaAnterior = hist.deudaAnterior || 0;
+  const remanenteAnterior = hist.remanenteAnterior || 0;
+
+  let horasFisicasMes = 0;
+  let horasAplicadasADuda = 0;
+  let deudaAnteriorEfectiva = deudaAnterior;
+  let computables = resHoras.computables;
+  let comprometidas;
+
+  if (comisionAsignada) {
+    // Socio en comisión
+    if (tieneDeuda) {
+      // Con deuda: comprometidas = objetivo + deudaAnterior
+      // Las horas físicas se aplican a la deuda (no al objetivo)
+      comprometidas = objetivo + deudaAnterior;
+      horasFisicasMes = resHoras.horasFisicasMes || 0;
+      horasAplicadasADuda = Math.min(horasFisicasMes, deudaAnterior);
+      deudaAnteriorEfectiva = Math.max(0, deudaAnterior - horasAplicadasADuda);
+      computables = 0; // no se computan horas físicas para el objetivo, van a deuda
+    } else {
+      // Sin deuda: solo objetivo, horas físicas no se computan
+      comprometidas = objetivo;
+      computables = 0;
+      horasFisicasMes = 0;
+    }
+  } else {
+    // Sin comisión
+    comprometidas = objetivo + deudaAnterior;
+    computables = resHoras.computables;
+  }
+
+  const totalCredito = computables + remanenteAnterior;
+
+  let remanenteFinal = 0;
+  let deudaFinal = 0;
+  let pasajeProyectadoTesoreria = 0;
+  let saldoDelMes;
+
+  if (comisionAsignada && tieneDeuda) {
+    // Comisión con deuda: objetivo cubre con comisión, horas físicas van a deuda
+    // saldo del mes = deuda restante después de aplicar horas físicas
+    saldoDelMes = deudaAnteriorEfectiva;
+    deudaFinal = deudaAnteriorEfectiva;
+    // Pasaje a tesorería = deuda que no se pudo recuperar
+    pasajeProyectadoTesoreria = deudaAnteriorEfectiva;
+    remanenteFinal = 0;
+  } else if (totalCredito >= comprometidas) {
+    remanenteFinal = totalCredito - comprometidas;
+    saldoDelMes = computables - objetivo;
+  } else {
+    deudaFinal = comprometidas - totalCredito;
+    const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
+    pasajeProyectadoTesoreria = Math.max(0, deudaAnteriorEfectiva - saldoTrasObjetivo);
+    saldoDelMes = computables - objetivo;
+  }
+
+  return {
+    comprometidas,
+    computables,
+    saldoDelMes,
+    remanenteFinal,
+    deudaFinal,
+    pasajeProyectadoTesoreria,
+    horasFisicasMes,
+    horasAplicadasADuda,
+    deudaAnteriorEfectiva
+  };
+}
+
 function renderPlanilla() {
   const anio = periodoAdminAnio;
   const mes = periodoAdminMes;
@@ -3962,32 +4041,9 @@ function renderPlanilla() {
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
     const periodoEsLicencia = esPeriodoLicencia(anio, mes);
-    const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
-    const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
-    const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
-    const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-    const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva);
-    let saldoDelMes = resHoras.computables - objetivo;
-    let totalCredito = resHoras.computables + hist.remanenteAnterior;
-
-    let remanenteFinal = 0;
-    let deudaFinal = 0;
-    let pasajeProyectadoTesoreria = 0;
-
-    if (periodoEsLicencia) {
-      // Se cobra Tesorería pendiente y sólo se pausa la deuda A Recuperar.
-      saldoDelMes = 0;
-      totalCredito = hist.remanenteAnterior;
-      remanenteFinal = hist.remanenteAnterior || 0;
-      deudaFinal = hist.deudaAnterior || 0;
-    } else if (totalCredito >= comprometidas) {
-      remanenteFinal = totalCredito - comprometidas;
-    } else {
-      deudaFinal = comprometidas - totalCredito;
-      const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
-      pasajeProyectadoTesoreria = Math.max(0, deudaAnteriorEfectiva - saldoTrasObjetivo);
-      // El saldo visible conserva toda la deuda pendiente; el pasaje proyectado se aplica al cerrar.
-    }
+    const resultado = calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, resHoras);
+    const { comprometidas, computables: resComputables, saldoDelMes, remanenteFinal, deudaFinal, pasajeProyectadoTesoreria, horasFisicasMes, horasAplicadasADuda, deudaAnteriorEfectiva } = resultado;
+    const totalCredito = resComputables + hist.remanenteAnterior;
 
     let obs = [];
     if (periodoEsLicencia) obs.push("Licencia: se cobra Tesorería y se pausa A Recuperar");
@@ -4027,7 +4083,7 @@ function renderPlanilla() {
 
     if (hist.deudaAnterior > 0) {
       if (horasAplicadasADuda > 0) {
-        obs.push(`Deuda anterior: ${formatHours(hist.deudaAnterior)} hs, aplicadas: ${formatHours(horasAplicadasADuda)} hs, saldo: ${formatHours(deudaAnteriorEfectiva)} hs`);
+        obs.push(`Deuda anterior: ${formatHours(hist.deudaAnterior)} hs, aplicadas: ${formatHours(horasAplicadasADuda)} hs, saldo: ${formatHours(deudaAnteriorEfectiva)}`);
       } else {
         obs.push(`Deuda arrastrada: ${formatHours(hist.deudaAnterior)} hs`);
       }
@@ -4045,11 +4101,11 @@ function renderPlanilla() {
       </td>
       <td class="py-3 px-4 text-center font-semibold text-slate-700 whitespace-nowrap">
         ${formatHours(comprometidas)}
-        <div class="text-[9px] text-slate-400 font-normal">(${formatHours(objetivo)} + ${formatHours(deudaAnteriorEfectiva)} hs)</div>
+        <div class="text-[9px] text-slate-400 font-normal">(${formatHours(objetivo)} + ${formatHours(deudaAnteriorEfectiva)})</div>
       </td>
       <td class="py-3 px-4 text-center">
         <span class="font-bold ${resHoras.perdidas ? 'text-red-500 line-through' : resHoras.cubiertasPorComision ? 'text-purple-700' : 'text-slate-800'}">
-          ${formatHours(resHoras.computables)}
+          ${formatHours(resComputables)}
         </span>
         ${resHoras.cubiertasPorComision ? `<div class="text-[8px] text-purple-600 font-bold">Cubiertas por comisión</div>` : ''}
         ${resHoras.cubiertasPorComision && resHoras.fisicas > 0 ? `<div class="text-[8px] text-slate-400 line-through">${formatHours(resHoras.fisicas)} campo</div>` : ''}
