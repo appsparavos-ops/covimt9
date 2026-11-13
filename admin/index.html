@@ -223,9 +223,12 @@
           </div>
         </div>
         
-        <div class="flex items-center justify-end">
+        <div class="flex items-center justify-end gap-2">
           <button type="button" id="btn-forgot-password" onclick="handleForgotPassword()" class="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:text-brand-700 transition cursor-pointer">
             <i data-lucide="key-round" class="w-3.5 h-3.5"></i> Olvidé mi contraseña
+          </button>
+          <button type="button" onclick="abrirAccesoSinConexion()" class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 transition rounded-xl px-3 py-1.5 cursor-pointer">
+            <i data-lucide="wifi-off" class="w-3.5 h-3.5"></i> Acceso sin conexión
           </button>
         </div>
         
@@ -233,6 +236,61 @@
           <i data-lucide="log-in" class="w-4 h-4"></i> Iniciar Sesión
         </button>
       </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: ACCESO SIN CONEXIÓN ================= -->
+  <div id="modal-acceso-sin-conexion" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-acceso-sin-conexion">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-white/10 p-8 space-y-6">
+      <div class="text-center space-y-2">
+        <div class="bg-amber-50 text-amber-700 p-4 rounded-2xl w-fit mx-auto shadow-inner">
+          <i data-lucide="wifi-off" class="w-10 h-10"></i>
+        </div>
+        <h2 id="titulo-acceso-sin-conexion" class="text-2xl font-bold tracking-tight text-slate-900">Acceso sin conexión</h2>
+        <p class="text-xs text-slate-500">Ingresá tu PIN de encargado para trabajar sin internet</p>
+      </div>
+
+      <form onsubmit="event.preventDefault(); loginConPin();" class="space-y-4">
+        <div>
+          <label for="pin-acceso-sin-conexion" class="block text-xs font-semibold text-slate-500 mb-1">PIN del encargado</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+              <i data-lucide="lock" class="w-4 h-4"></i>
+            </span>
+            <input type="password" id="pin-acceso-sin-conexion" required class="w-full rounded-xl border border-slate-200 pl-10 pr-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 transition" placeholder="••••">
+          </div>
+        </div>
+
+        <p class="text-[11px] text-amber-600 bg-amber-50/50 p-3 rounded-xl border border-amber-100">
+          Los datos ingresados se guardan localmente en este dispositivo y deben sincronizarse cuando obtenga conexión.
+        </p>
+
+        <div class="flex items-center justify-between gap-2">
+          <button type="button" onclick="cerrarAccesoSinConexion()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-xl transition">Cancelar</button>
+          <button type="submit" id="btn-login-pin" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2">
+            <i data-lucide="log-in" class="w-4 h-4"></i> Ingresar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: CONFIRMACIÓN COMISIÓN SIN DEUDA ================= -->
+  <div id="modal-comision-sin-deuda" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-comision-sin-deuda">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-white/10 p-8 space-y-6">
+      <div class="text-center space-y-2">
+        <div class="bg-amber-50 text-amber-700 p-4 rounded-2xl w-fit mx-auto shadow-inner">
+          <i data-lucide="clock" class="w-10 h-10"></i>
+        </div>
+        <h2 id="titulo-comision-sin-deuda" class="text-2xl font-bold tracking-tight text-slate-900">Atención: Comisión sin deuda</h2>
+        <p class="text-sm text-slate-600" id="msg-comision-sin-deuda">Este socio integra una comisión y no tiene deuda del mes anterior. Las horas trabajadas no serán computadas.</p>
+      </div>
+      <div class="flex items-center justify-between gap-2">
+        <button type="button" onclick="cancelarComisionSinDeuda()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-xl transition">Cancelar</button>
+        <button type="button" onclick="confirmarComisionSinDeuda()" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2">
+          <i data-lucide="play" class="w-4 h-4"></i> Seguir
+        </button>
+      </div>
     </div>
   </div>
 

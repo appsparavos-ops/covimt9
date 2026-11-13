@@ -976,6 +976,36 @@ async function removeNucleoMember(socioId, index) {
 async function registerIngreso() {
   const socioId = document.getElementById('ingreso-socio-filtered').value;
   const fecha = document.getElementById('ingreso-fecha').value;
+
+  // --- VERIFICACIÓN: Comisión sin deuda → mostrar cartel antes de fichar ---
+  const socio = socios.find(s => String(s.id) === String(socioId));
+  if (socio) {
+    const comision = obtenerComisionAsignadaNucleo(socio);
+    const [anio, mes] = fecha.split('-');
+    const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
+    const tieneDeuda = (hist.deudaAnterior || 0) > 0;
+
+    if (comision && !tieneDeuda) {
+      const msg = document.getElementById('msg-comision-sin-deuda');
+      if (msg) {
+        msg.textContent = `El socio ${socio.nombre} integra la comisión "${comision}" y no tiene deuda del mes anterior. Las horas trabajadas no serán computadas. ¿Desea continuar con el fichaje de ingreso?`;
+      }
+      const modal = document.getElementById('modal-comision-sin-deuda');
+      if (modal) {
+        modal.classList.remove('hidden');
+        window._pendingIngreso = { socioId, fecha };
+        return;
+      }
+    }
+  }
+
+  _ejecutarRegistroIngreso();
+}
+
+// Responsable vinculado al login (Auth displayName). Si aún no está cargado, intenta tomar el input como fallback.
+async function _ejecutarRegistroIngreso() {
+  const socioId = document.getElementById('ingreso-socio-filtered').value;
+  const fecha = document.getElementById('ingreso-fecha').value;
   // Responsable vinculado al login (Auth displayName). Si aún no está cargado, intenta tomar el input como fallback.
   const responsableInput = (document.getElementById('ingreso-responsable').value || '').trim();
   const responsable = (nombreResponsableActual && nombreResponsableActual.trim().length >= 3) ? nombreResponsableActual : responsableInput;
@@ -989,6 +1019,9 @@ async function registerIngreso() {
   // Leer trabajadores y la tarea elegida individualmente para cada uno.
   const checkboxes = document.querySelectorAll('.ingreso-trabajador-cb:checked');
   const trabajadores = Array.from(checkboxes).map(cb => cb.value);
+  const trabajadoresConPrestamo = Array.from(document.querySelectorAll('.ingreso-prestamo-cb:checked'))
+    .map(cb => cb.value)
+    .filter(nombre => trabajadores.includes(nombre));
   const asignaciones = new Map();
   document.querySelectorAll('.ingreso-tarea-select').forEach(select => {
     if (select.dataset.trabajador && select.value) asignaciones.set(select.dataset.trabajador, select.value);
@@ -1071,6 +1104,22 @@ async function registerIngreso() {
   }
 }
 
+
+function cancelarComisionSinDeuda() {
+  const modal = document.getElementById('modal-comision-sin-deuda');
+  if (modal) modal.classList.add('hidden');
+  window._pendingIngreso = null;
+}
+
+async function confirmarComisionSinDeuda() {
+  const modal = document.getElementById('modal-comision-sin-deuda');
+  if (modal) modal.classList.add('hidden');
+  const pending = window._pendingIngreso;
+  if (pending) {
+    window._pendingIngreso = null;
+    _ejecutarRegistroIngreso();
+  }
+}
 async function submitEgresoWithSignature() {
   const id = document.getElementById('egreso-registro-id').value;
   const horaSalida = document.getElementById('egreso-hora').value;
@@ -1554,10 +1603,11 @@ async function simularCierreMensual() {
         continue;
       }
       
-      const horasFisicasMesVal = resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0;
+      const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
+    const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
     const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
     const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-    const comprometidas = objetivo + deudaAnteriorEfectiva;
+    const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva);
       const totalCredito = resHoras.computables + hist.remanenteAnterior;
 
       let remanenteFinal = 0;
@@ -1571,7 +1621,7 @@ async function simularCierreMensual() {
         
         const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
         if (saldoTrasMesCorriente < hist.deudaAnterior) {
-          pasajeATesoreria = deudaAnteriorEfectiva - saldoTrasMesCorriente;
+          pasajeATesoreria = Math.max(0, deudaAnteriorEfectiva - saldoTrasMesCorriente);
           deudaFinal = Math.max(0, deudaFinal - pasajeATesoreria);
         }
       }
@@ -1824,24 +1874,43 @@ function obtenerResultadoHorasSocio(socio, anio, mes) {
   const objetivo = obtenerObjetivoHorasSocio(socio, anio, mes);
   const comisionAsignada = obtenerComisionAsignadaNucleo(socio);
 
-  const horasFisicasMes = comisionAsignada ? obtenerHorasFisicasMes(socio, anio, mes) : 0;
+  const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
+  const tieneDeuda = (hist.deudaAnterior || 0) > 0;
+  const deudaAnterior = hist.deudaAnterior || 0;
 
   if (objetivo > 0 && comisionAsignada) {
-    return {
-      fisicas: horasCampo.fisicas,
-      computables: objetivo,
-      perdidas: false,
-      cubiertasPorComision: true,
-      comision: comisionAsignada,
-      horasFisicasMes
-    };
+    if (tieneDeuda) {
+      return {
+        fisicas: horasCampo.fisicas,
+        computables: objetivo,
+        perdidas: false,
+        cubiertasPorComision: true,
+        comision: comisionAsignada,
+        horasFisicasMes: horasCampo.fisicas,
+        tieneDeuda: true,
+        deudaAnterior: deudaAnterior
+      };
+    } else {
+      return {
+        fisicas: 0,
+        computables: objetivo,
+        perdidas: false,
+        cubiertasPorComision: true,
+        comision: comisionAsignada,
+        horasFisicasMes: 0,
+        tieneDeuda: false,
+        deudaAnterior: 0
+      };
+    }
   }
 
   return {
     ...horasCampo,
     cubiertasPorComision: false,
     comision: null,
-    horasFisicasMes: 0
+    horasFisicasMes: 0,
+    tieneDeuda: false,
+    deudaAnterior: 0
   };
 }
 
@@ -3841,10 +3910,11 @@ function renderPlanilla() {
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
     const periodoEsLicencia = esPeriodoLicencia(anio, mes);
-    const horasFisicasMesVal = resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0;
+    const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
+    const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
     const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
     const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-    const comprometidas = objetivo + deudaAnteriorEfectiva;
+    const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva);
     let saldoDelMes = resHoras.computables - objetivo;
     let totalCredito = resHoras.computables + hist.remanenteAnterior;
 
@@ -3923,7 +3993,7 @@ function renderPlanilla() {
       </td>
       <td class="py-3 px-4 text-center font-semibold text-slate-700 whitespace-nowrap">
         ${formatHours(comprometidas)}
-        <div class="text-[9px] text-slate-400 font-normal">(${formatHours(objetivo)} + ${formatHours(deudaAnteriorEfectiva)} deudas)</div>
+        <div class="text-[9px] text-slate-400 font-normal">(${formatHours(objetivo)} + ${formatHours(deudaAnteriorEfectiva)} hs)</div>
       </td>
       <td class="py-3 px-4 text-center">
         <span class="font-bold ${resHoras.perdidas ? 'text-red-500 line-through' : resHoras.cubiertasPorComision ? 'text-purple-700' : 'text-slate-800'}">
@@ -4622,10 +4692,11 @@ function exportPlanillaCSV() {
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
     const periodoEsLicencia = esPeriodoLicencia(anio, mes);
-    const horasFisicasMesVal = resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0;
+    const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
+    const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
     const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
     const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-    const comprometidas = objetivo + deudaAnteriorEfectiva;
+    const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva);
     let saldoDelMes = objetivo - resHoras.computables;
     let totalCredito = resHoras.computables + hist.remanenteAnterior;
 
@@ -4719,10 +4790,11 @@ async function exportPlanillaPDF() {
     const exonerado = esNucleoExonerado(s); // Check if the entire nucleus is exempt
 
     // Calculations for the current month's display
-    const horasFisicasMesVal = resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0;
+    const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
+    const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
     const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
     const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-    const comprometidas = objetivo + deudaAnteriorEfectiva; // Total hours to cover (objective + previous debt)
+    const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva); // Total hours to cover (objective + previous debt)
     const saldoDelMes = resHoras.computables - objetivo; // Balance for the current month's objective
     const totalCredito = resHoras.computables + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
 
@@ -4741,7 +4813,7 @@ async function exportPlanillaPDF() {
       deudaFinal = comprometidas - totalCredito;
       const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
       if (saldoTrasMesCorriente < hist.deudaAnterior) {
-        pasajeATesoreriaCalculado = deudaAnteriorEfectiva - saldoTrasMesCorriente;
+        pasajeATesoreriaCalculado = Math.max(0, deudaAnteriorEfectiva - saldoTrasMesCorriente);
         // El PDF muestra la deuda pendiente actual completa; el pasaje se concreta al cerrar.
       }
     }
