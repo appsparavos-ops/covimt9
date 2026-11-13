@@ -63,6 +63,88 @@ let nombreResponsableActual = '';
 let responsableUnsubscribe = null; // legacy (no longer used, Auth displayName)
 let _responsableSyncInterval = null;
 
+// --- MODO ACCESO SIN CONEXIÓN (PIN del encargado) ---
+let usuarioOffline = null; // { uid, email } | null — usuario local cuando no hay Firebase ni conexión
+const PIN_NS = 'covimt9-panol'; // mismo namespace que el PIN de firma
+
+const _pinClave = (uid) => `${PIN_NS}_pin_${uid}`;
+const _pinEstadoClave = (uid) => `${PIN_NS}_pin_estado_${uid}`;
+const PIN_INTENTOS_MAX = 5;
+const PIN_BLOQUEO_MS = 60 * 1000;
+
+function _pinSalt() {
+  const k = `${PIN_NS}_pin_salt`;
+  let s = localStorage.getItem(k);
+  if (!s) {
+    const buf = new Uint8Array(16);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(buf);
+    else for (let i = 0; i < buf.length; i++) buf[i] = Math.floor(Math.random() * 256);
+    s = Array.from(buf, b => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem(k, s);
+  }
+  return s;
+}
+
+async function _pinHash(texto) {
+  const datos = `${_pinSalt()}|${texto}`;
+  if (window.crypto && window.crypto.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(datos));
+    return 'sha256:' + Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+  }
+  let h = 5381;
+  for (let i = 0; i < datos.length; i++) h = ((h << 5) + h + datos.charCodeAt(i)) >>> 0;
+  return 'djb2:' + h.toString(16);
+}
+
+async function _pinCoincide(guardado, texto) {
+  if (!guardado) return false;
+  const actual = await _pinHash(texto);
+  if (actual === guardado) return true;
+  const algo = String(guardado).split(':')[0];
+  return (algo === 'sha256' || algo === 'djb2') ? (await (algo === 'sha256' ? _pinHash(texto) : _pinHash(texto))) === guardado : false;
+}
+
+function _pinEstado(uid) {
+  try { return JSON.parse(localStorage.getItem(_pinEstadoClave(uid))) || {}; } catch (e) { return {}; }
+}
+
+function _pinRegistrarFallo(uid) {
+  const fails = (_pinEstado(uid).fails || 0) + 1;
+  localStorage.setItem(_pinEstadoClave(uid), JSON.stringify({
+    fails,
+    hasta: fails >= PIN_INTENTOS_MAX ? Date.now() + PIN_BLOQUEO_MS : 0
+  }));
+  return { restantes: Math.max(0, PIN_INTENTOS_MAX - fails), bloqueado: fails >= PIN_INTENTOS_MAX };
+}
+
+async function verificarPinOffline(uid, pin) {
+  const guardado = localStorage.getItem(_pinClave(uid));
+  if (!guardado) return { ok: false, motivo: 'sin-pin' };
+  const hasta = _pinEstado(uid).hasta || 0;
+  if (hasta > Date.now()) return { ok: false, motivo: 'bloqueado', segundos: Math.ceil((hasta - Date.now()) / 1000) };
+  if (await _pinCoincide(guardado, pin)) {
+    localStorage.removeItem(_pinEstadoClave(uid));
+    return { ok: true };
+  }
+  const r = _pinRegistrarFallo(uid);
+  return { ok: false, motivo: r.bloqueado ? 'bloqueado' : 'incorrecto', restantes: r.restantes };
+}
+
+function obtenerPinesGuardados() {
+  const pines = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`${PIN_NS}_pin_`) && !key.includes('_salt') && !key.includes('_estado') && !key.includes('_ofrecido')) {
+        const uid = key.replace(`${PIN_NS}_pin_`, '');
+        const hash = localStorage.getItem(key);
+        if (uid && hash) pines.push({ uid, hash });
+      }
+    }
+  } catch (e) { console.warn('[pin] error listando pines:', e); }
+  return pines;
+}
+
 // Helper function for formatting hours
 function formatHours(value) {
   const roundedValue = Math.round(value);
@@ -143,53 +225,54 @@ function checkAuthAndInit() {
     const viewLogin = document.getElementById('view-login');
     const appContainer = document.getElementById('app-container');
 
-    if (user) {
-      // Usuario autenticado: mostrar app, ocultar login
+    const modoOfflineActivo = !user && usuarioOffline;
+
+    if (user || modoOfflineActivo) {
+      // Usuario autenticado (Firebase o modo offline con PIN): mostrar app, ocultar login
       viewLogin?.classList.add('hidden');
       appContainer?.classList.remove('hidden');
-      
-      // Sincronizar Firestore
-      startFirestoreSync();
 
-      // Sincronizar pendiente de responsable guardado offline (cache -> Auth displayName)
-      (async () => {
-        try {
-          const pendingRaw = localStorage.getItem('covimt9_responsable_pending_' + user.uid);
-          if (pendingRaw && navigator.onLine) {
-            const pending = JSON.parse(pendingRaw);
-            if (pending && pending.nombre && (!user.displayName || user.displayName !== pending.nombre)) {
-              console.log('[responsable] sincronizando pendiente offline -> Auth:', pending.nombre);
-              await user.updateProfile({ displayName: normalizarNombreResponsable(pending.nombre) });
-              await user.reload();
-              const fu = firebase.auth().currentUser;
-              if (fu) { try { localStorage.setItem('covimt9_responsable_' + fu.uid, fu.displayName || pending.nombre); } catch(e){} }
-              try { localStorage.removeItem('covimt9_responsable_pending_' + user.uid); } catch(e){}
-              showToast('Responsable sincronizado: ' + (pending.nombre), 'success');
-            } else if (pending && pending.nombre) {
-              try { localStorage.removeItem('covimt9_responsable_pending_' + user.uid); } catch(e){}
+      if (user) {
+        // Solo con Firebase real: sincronizar Firestore y responsable
+        startFirestoreSync();
+
+        (async () => {
+          try {
+            const pendingRaw = localStorage.getItem('covimt9_responsable_pending_' + user.uid);
+            if (pendingRaw && navigator.onLine) {
+              const pending = JSON.parse(pendingRaw);
+              if (pending && pending.nombre && (!user.displayName || user.displayName !== pending.nombre)) {
+                console.log('[responsable] sincronizando pendiente offline -> Auth:', pending.nombre);
+                await user.updateProfile({ displayName: normalizarNombreResponsable(pending.nombre) });
+                await user.reload();
+                const fu = firebase.auth().currentUser;
+                if (fu) { try { localStorage.setItem('covimt9_responsable_' + fu.uid, fu.displayName || pending.nombre); } catch(e){} }
+                try { localStorage.removeItem('covimt9_responsable_pending_' + user.uid); } catch(e){}
+                showToast('Responsable sincronizado: ' + (pending.nombre), 'success');
+              } else if (pending && pending.nombre) {
+                try { localStorage.removeItem('covimt9_responsable_pending_' + user.uid); } catch(e){}
+              }
             }
-          }
-        } catch(e){ console.warn('[responsable] sync pendiente error:', e); }
-      })();
+          } catch(e){ console.warn('[responsable] sync pendiente error:', e); }
+        })();
 
-      // Precargar datos para modo offline (ahora sí hay auth)
-      if (navigator.onLine) {
-        OfflineSync.precargarDatos(db);
+        if (navigator.onLine) {
+          OfflineSync.precargarDatos(db);
+        }
+
+        iniciarSyncResponsable(user);
+        verificarYConfigurarResponsable().then(() => {
+          ofrecerAltaPinEnLogin();
+        });
+      } else {
+        // Modo offline: notificar al usuario
+        showToast('Modo sin conexión — datos pendientes de sincronización', 'info');
       }
-
-      // Vincular responsable al login y sincronizar desde Firebase Auth displayName (sin colección nueva)
-      iniciarSyncResponsable(user);
-      verificarYConfigurarResponsable().then(() => {
-        // Si este dispositivo todavía no tiene PIN para esta cuenta, se ofrece definirlo
-        // acá (con la contraseña recién usada) en vez de esperar al cierre o al Modo Edición.
-        ofrecerAltaPinEnLogin();
-      });
     } else {
       // Usuario no autenticado: mostrar login, ocultar app
       viewLogin?.classList.remove('hidden');
       appContainer?.classList.add('hidden');
-      
-      // Limpiar listeners si es necesario
+
       socios = [];
       registros = [];
       saldosHistoricos = {};
@@ -198,7 +281,6 @@ function checkAuthAndInit() {
       if (_responsableSyncInterval) { try { clearInterval(_responsableSyncInterval); } catch(e){} _responsableSyncInterval = null; }
       actualizarCampoResponsableUI();
     }
-    // Refrescar iconos para elementos que acaban de hacerse visibles
     lucide.createIcons();
   });
 }
@@ -228,6 +310,95 @@ function handleLogin() {
       lucide.createIcons();
     });
 }
+
+// ============================================================
+// ACCESO SIN CONEXIÓN (PIN del encargado)
+// Permite entrar a la app sin internet usando el mismo PIN
+// configurado para firmar jornadas.
+// ============================================================
+
+function abrirAccesoSinConexion() {
+  const modal = document.getElementById('modal-acceso-sin-conexion');
+  const input = document.getElementById('pin-acceso-sin-conexion');
+  if (modal) {
+    modal.classList.remove('hidden');
+    if (input) { input.value = ''; setTimeout(() => { try { input.focus(); } catch(e){} }, 80); }
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+function cerrarAccesoSinConexion() {
+  const modal = document.getElementById('modal-acceso-sin-conexion');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function loginConPin() {
+  const input = document.getElementById('pin-acceso-sin-conexion');
+  const btn = document.getElementById('btn-login-pin');
+  const pin = (input && input.value) ? input.value.trim() : '';
+  if (!pin) {
+    showToast('Ingresá un PIN.', 'error');
+    if (input) input.focus();
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Verificando...'; if(window.lucide) lucide.createIcons(); }
+
+  try {
+    const pines = obtenerPinesGuardados();
+    if (pines.length === 0) {
+      showToast('Este dispositivo no tiene ningún PIN configurado. Iniciá sesión con contraseña al menos una vez para crear tu PIN.', 'error');
+      return;
+    }
+
+    let cuentaValida = null;
+    for (const p of pines) {
+      const r = await verificarPinOffline(p.uid, pin);
+      if (r.ok) { cuentaValida = p; break; }
+      if (r.motivo === 'bloqueado') {
+        showToast(`PIN bloqueado. Probá de nuevo en ${r.segundos || 60} segundos.`, 'error');
+        return;
+      }
+    }
+
+    if (!cuentaValida) {
+      showToast('El PIN no es correcto.', 'error');
+      if (input) input.focus();
+      return;
+    }
+
+    usuarioOffline = { uid: cuentaValida.uid, email: '' };
+    cerrarAccesoSinConexion();
+
+    const viewLogin = document.getElementById('view-login');
+    const appContainer = document.getElementById('app-container');
+    if (viewLogin) viewLogin.classList.add('hidden');
+    if (appContainer) appContainer.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+
+    showToast('Acceso sin conexión activado. Los datos se sincronizarán al tener internet.', 'success');
+    console.log('[offline] Usuario local:', cuentaValida.uid);
+  } catch (e) {
+    console.error('[offline] error:', e);
+    showToast('Error al verificar el PIN.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="log-in" class="w-4 h-4"></i> Ingresar'; if(window.lucide) lucide.createIcons(); }
+  }
+}
+
+function salirModoOffline() {
+  usuarioOffline = null;
+  const viewLogin = document.getElementById('view-login');
+  const appContainer = document.getElementById('app-container');
+  if (viewLogin) viewLogin.classList.remove('hidden');
+  if (appContainer) appContainer.classList.add('hidden');
+  showToast('Saliste del modo sin conexión.', 'info');
+}
+
+// ============================================================
+// ACCESO SIN CONEXIÓN (PIN del encargado)
+// Permite entrar a la app sin internet usando el mismo PIN
+// configurado para firmar jornadas.
+// ============================================================
 
 // --- RECUPERACIÓN DE CONTRASEÑA ---
 // La app sólo dispara el envío; el correo y el enlace los genera Firebase Auth.
@@ -1400,7 +1571,10 @@ async function simularCierreMensual() {
         continue;
       }
       
-      const comprometidas = objetivo + hist.deudaAnterior;
+      const horasFisicasMesVal = resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0;
+    const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
+    const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
+    const comprometidas = objetivo + deudaAnteriorEfectiva;
       const totalCredito = resHoras.computables + hist.remanenteAnterior;
 
       let remanenteFinal = 0;
@@ -1414,7 +1588,7 @@ async function simularCierreMensual() {
         
         const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
         if (saldoTrasMesCorriente < hist.deudaAnterior) {
-          pasajeATesoreria = hist.deudaAnterior - saldoTrasMesCorriente;
+          pasajeATesoreria = deudaAnteriorEfectiva - saldoTrasMesCorriente;
           deudaFinal = Math.max(0, deudaFinal - pasajeATesoreria);
         }
       }
@@ -1618,10 +1792,56 @@ function obtenerHorasRealizadasNucleo(socioId, anio, mes) {
   };
 }
 
+// ============================================================
+//  REGLAS DE COMISIÓN Y RECUPERACIÓN DE DEUDA
+//  Cuando un socio/núcleo tiene comisión, las horas físicas trabajadas
+//  durante el mes se aplican para recuperar la deuda del mes anterior.
+//  Solo pueden cubrir deuda, nunca generan remanente.
+//  Integrante habilitado: titular, o familiar del núcleo mayor de 18 años,
+//  o mayor de 16 años con autorización.
+// ============================================================
+
+function calcularEdadPersona(fechaNacimiento) {
+  if (!fechaNacimiento) return 0;
+  const hoy = new Date();
+  const nacimiento = new Date(fechaNacimiento);
+  let edad = hoy.getFullYear() - nacimiento.getFullYear();
+  const m = hoy.getMonth() - nacimiento.getMonth();
+  if (m < 0 || (m === 0 && hoy.getDate() < nacimiento.getDate())) edad--;
+  return edad;
+}
+
+function esTrabajadorElegible(nombreTrabajador, socio) {
+  if (nombreTrabajador === socio.nombre) return true;
+  if (socio.nucleo) {
+    const familiar = socio.nucleo.find(f => f.nombre === nombreTrabajador);
+    if (familiar) {
+      const edad = calcularEdadPersona(familiar.fechaNacimiento);
+      if (edad >= 18) return true;
+      if (edad >= 16 && familiar.autorizacionMenor) return true;
+    }
+  }
+  return false;
+}
+
+function obtenerHorasFisicasMes(socio, anio, mes) {
+  const sId = String(socio.id).trim();
+  return registros
+    .filter(r => String(r.socioId).trim() === sId && r.estado === 'finalizado')
+    .filter(r => {
+      const [regAnio, regMes] = (r.fecha || "").split('-');
+      return regAnio === anio && regMes === mes;
+    })
+    .filter(r => esTrabajadorElegible(r.trabajadorNombre, socio))
+    .reduce((sum, r) => sum + getRoundedHours(r.horaIngreso, r.horaSalida), 0);
+}
+
 function obtenerResultadoHorasSocio(socio, anio, mes) {
   const horasCampo = obtenerHorasRealizadasNucleo(socio.id, anio, mes);
   const objetivo = obtenerObjetivoHorasSocio(socio, anio, mes);
   const comisionAsignada = obtenerComisionAsignadaNucleo(socio);
+
+  const horasFisicasMes = comisionAsignada ? obtenerHorasFisicasMes(socio, anio, mes) : 0;
 
   if (objetivo > 0 && comisionAsignada) {
     return {
@@ -1629,14 +1849,16 @@ function obtenerResultadoHorasSocio(socio, anio, mes) {
       computables: objetivo,
       perdidas: false,
       cubiertasPorComision: true,
-      comision: comisionAsignada
+      comision: comisionAsignada,
+      horasFisicasMes
     };
   }
 
   return {
     ...horasCampo,
     cubiertasPorComision: false,
-    comision: null
+    comision: null,
+    horasFisicasMes: 0
   };
 }
 
@@ -2744,7 +2966,9 @@ const FIRMA_BLOQUEO_MS = 60 * 1000;
 
 function cuentaFirmando() {
   const user = firebase.auth().currentUser;
-  return user ? { uid: user.uid, email: user.email || '' } : null;
+  if (user) return { uid: user.uid, email: user.email || '' };
+  if (usuarioOffline) return { uid: usuarioOffline.uid, email: usuarioOffline.email || '', offline: true };
+  return null;
 }
 
 const _firmaClavePin = (uid) => `${FIRMA_NS}_pin_${uid}`;
@@ -3668,7 +3892,10 @@ function renderPlanilla() {
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
     const periodoEsLicencia = esPeriodoLicencia(anio, mes);
-    const comprometidas = objetivo + hist.deudaAnterior;
+    const horasFisicasMesVal = resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0;
+    const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
+    const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
+    const comprometidas = objetivo + deudaAnteriorEfectiva;
     let saldoDelMes = resHoras.computables - objetivo;
     let totalCredito = resHoras.computables + hist.remanenteAnterior;
 
@@ -3687,7 +3914,7 @@ function renderPlanilla() {
     } else {
       deudaFinal = comprometidas - totalCredito;
       const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
-      pasajeProyectadoTesoreria = Math.max(0, hist.deudaAnterior - saldoTrasObjetivo);
+      pasajeProyectadoTesoreria = Math.max(0, deudaAnteriorEfectiva - saldoTrasObjetivo);
       // El saldo visible conserva toda la deuda pendiente; el pasaje proyectado se aplica al cerrar.
     }
 
@@ -3728,7 +3955,11 @@ function renderPlanilla() {
     }
 
     if (hist.deudaAnterior > 0) {
-      obs.push(`Deuda arrastrada: ${hist.deudaAnterior} hs`);
+      if (horasAplicadasADuda > 0) {
+        obs.push(`Deuda anterior: ${formatHours(hist.deudaAnterior)} hs, aplicadas: ${formatHours(horasAplicadasADuda)} hs, saldo: ${formatHours(deudaAnteriorEfectiva)} hs`);
+      } else {
+        obs.push(`Deuda arrastrada: ${formatHours(hist.deudaAnterior)} hs`);
+      }
     }
     if (hist.remanenteAnterior > 0) {
       obs.push(`Remanente arrastrado: ${hist.remanenteAnterior} hs`);
@@ -3743,7 +3974,7 @@ function renderPlanilla() {
       </td>
       <td class="py-3 px-4 text-center font-semibold text-slate-700 whitespace-nowrap">
         ${formatHours(comprometidas)}
-        <div class="text-[9px] text-slate-400 font-normal">(${formatHours(objetivo)} + ${formatHours(hist.deudaAnterior)} deudas)</div>
+        <div class="text-[9px] text-slate-400 font-normal">(${formatHours(objetivo)} + ${formatHours(deudaAnteriorEfectiva)} deudas)</div>
       </td>
       <td class="py-3 px-4 text-center">
         <span class="font-bold ${resHoras.perdidas ? 'text-red-500 line-through' : resHoras.cubiertasPorComision ? 'text-purple-700' : 'text-slate-800'}">
@@ -4442,7 +4673,10 @@ function exportPlanillaCSV() {
     const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
 
     const periodoEsLicencia = esPeriodoLicencia(anio, mes);
-    const comprometidas = objetivo + hist.deudaAnterior;
+    const horasFisicasMesVal = resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0;
+    const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
+    const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
+    const comprometidas = objetivo + deudaAnteriorEfectiva;
     let saldoDelMes = objetivo - resHoras.computables;
     let totalCredito = resHoras.computables + hist.remanenteAnterior;
 
@@ -4460,7 +4694,7 @@ function exportPlanillaCSV() {
     } else {
       deudaFinal = comprometidas - totalCredito;
       const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
-      pasajeProyectadoTesoreria = Math.max(0, hist.deudaAnterior - saldoTrasObjetivo);
+      pasajeProyectadoTesoreria = Math.max(0, deudaAnteriorEfectiva - saldoTrasObjetivo);
       // El saldo visible conserva toda la deuda pendiente; el pasaje proyectado se aplica al cerrar.
     }
 
@@ -4536,7 +4770,10 @@ async function exportPlanillaPDF() {
     const exonerado = esNucleoExonerado(s); // Check if the entire nucleus is exempt
 
     // Calculations for the current month's display
-    const comprometidas = objetivo + hist.deudaAnterior; // Total hours to cover (objective + previous debt)
+    const horasFisicasMesVal = resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0;
+    const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
+    const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
+    const comprometidas = objetivo + deudaAnteriorEfectiva; // Total hours to cover (objective + previous debt)
     const saldoDelMes = resHoras.computables - objetivo; // Balance for the current month's objective
     const totalCredito = resHoras.computables + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
 
@@ -4555,7 +4792,7 @@ async function exportPlanillaPDF() {
       deudaFinal = comprometidas - totalCredito;
       const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
       if (saldoTrasMesCorriente < hist.deudaAnterior) {
-        pasajeATesoreriaCalculado = hist.deudaAnterior - saldoTrasMesCorriente;
+        pasajeATesoreriaCalculado = deudaAnteriorEfectiva - saldoTrasMesCorriente;
         // El PDF muestra la deuda pendiente actual completa; el pasaje se concreta al cerrar.
       }
     }
