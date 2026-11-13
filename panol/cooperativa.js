@@ -4019,21 +4019,23 @@ function renderPlanilla() {
   });
 
   sociosOrdenados.forEach(socioOriginal => {
-    // Obtener el estado del socio para el último día del mes consultado
-    const ultimoDiaMes = new Date(anio, mes, 0).toISOString().split('T')[0];
-    const s = getSocioSnapshot(socioOriginal, ultimoDiaMes);
-    
-    // Si el socio no existía o ya estaba de baja en ese mes, no lo mostramos
-    if (!s) return;
+    try {
+      // Obtener el estado del socio para el último día del mes consultado
+      const ultimoDiaMes = new Date(anio, mes, 0).toISOString().split('T')[0];
+      const s = getSocioSnapshot(socioOriginal, ultimoDiaMes);
+      
+      // Si el socio no existía o ya estaba de baja en ese mes, no lo mostramos
+      if (!s) return;
 
-    const exonerado = esNucleoExonerado(s);
-    const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
-    const comisionAsignada = obtenerComisionAsignadaNucleo(s);
-    const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
-    const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
+      const exonerado = esNucleoExonerado(s);
+      const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
+      const comisionAsignada = obtenerComisionAsignadaNucleo(s);
+      const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
+      const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
+      const tieneDeuda = (hist.deudaAnterior || 0) > 0;
 
-    const periodoEsLicencia = esPeriodoLicencia(anio, mes);
-    const resultado = calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, resHoras);
+      const periodoEsLicencia = esPeriodoLicencia(anio, mes);
+      const resultado = calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, resHoras);
     const { comprometidas, computables: resComputables, saldoDelMes, remanenteFinal, deudaFinal, pasajeProyectadoTesoreria, horasFisicasMes, horasAplicadasADuda, deudaAnteriorEfectiva } = resultado;
     const totalCredito = resComputables + hist.remanenteAnterior;
 
@@ -4126,6 +4128,9 @@ function renderPlanilla() {
       <td class="py-3 px-4 text-slate-500 max-w-xs truncate">${obs.join(" | ") || '-'}</td>
     `;
     tbody.appendChild(row);
+    } catch (err) {
+      console.error('Error renderizando socio:', socioOriginal?.id, socioOriginal?.nombre, err);
+    }
   });
 }
 
