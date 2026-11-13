@@ -3980,6 +3980,7 @@ function renderPlanilla() {
       const comisionAsignada = obtenerComisionAsignadaNucleo(s);
       const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
       const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
+      const tieneDeuda = (hist.deudaAnterior || 0) > 0;
 
       const periodoEsLicencia = esPeriodoLicencia(anio, mes);
       const resultado = calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, resHoras);
