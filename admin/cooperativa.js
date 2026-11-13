@@ -3883,18 +3883,19 @@ function calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, re
 
   if (comisionAsignada) {
     // Socio en comisión
+    horasFisicasMes = resHoras.horasFisicasMes || 0;
     if (tieneDeuda) {
       // Con deuda: comprometidas = objetivo + deudaAnterior
       // Las horas físicas se aplican a la deuda (no al objetivo)
       comprometidas = objetivo + deudaAnterior;
-      horasFisicasMes = resHoras.horasFisicasMes || 0;
       horasAplicadasADuda = Math.min(horasFisicasMes, deudaAnterior);
       deudaAnteriorEfectiva = Math.max(0, deudaAnterior - horasAplicadasADuda);
-      computables = 0; // no se computan horas físicas para el objetivo, van a deuda
+      // Horas realizadas = objetivo (cubiertas por comisión) + horas físicas aplicadas a deuda
+      computables = objetivo + horasFisicasMes;
     } else {
       // Sin deuda: solo objetivo, horas físicas no se computan
       comprometidas = objetivo;
-      computables = 0;
+      computables = objetivo;
       horasFisicasMes = 0;
     }
   } else {
@@ -3911,11 +3912,14 @@ function calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, re
   let saldoDelMes;
 
   if (comisionAsignada && tieneDeuda) {
-    // Comisión con deuda: objetivo cubre con comisión, horas físicas van a deuda
-    // saldo del mes = deuda restante después de aplicar horas físicas
-    saldoDelMes = deudaAnteriorEfectiva;
+    // Comisión con deuda:
+    // - Objetivo cubre con comisión (no genera deuda ni remanente)
+    // - Horas físicas se aplican a la deuda anterior
+    // - saldo del mes = deuda restante después de aplicar horas físicas
+    // - deudaFinal = deudaAnteriorEfectiva
+    // - pasaje a tesorería = deudaAnteriorEfectiva (lo que no se recuperó)
+    saldoDelMes = deudaAnteriorEfectiva;  // saldo negativo (deuda pendiente)
     deudaFinal = deudaAnteriorEfectiva;
-    // Pasaje a tesorería = deuda que no se pudo recuperar
     pasajeProyectadoTesoreria = deudaAnteriorEfectiva;
     remanenteFinal = 0;
   } else if (totalCredito >= comprometidas) {
@@ -3940,6 +3944,7 @@ function calcularResultadoMes(s, anio, mes, objetivo, comisionAsignada, hist, re
     deudaAnteriorEfectiva
   };
 }
+
 
 function renderPlanilla() {
   const anio = periodoAdminAnio;
@@ -4004,7 +4009,13 @@ function renderPlanilla() {
         obs.push("Exonerado por edad");
       }
     }
-    if (!exonerado && comisionAsignada) obs.push(`Objetivo cubierto por comisión: ${comisionAsignada} (${objetivo} hs)`);
+    if (!exonerado && comisionAsignada) {
+      if (tieneDeuda) {
+        obs.push(`Objetivo cubierto por comisión: ${comisionAsignada} (${objetivo} hs) + ${formatHours(horasFisicasMes)} hs aplicadas a deuda`);
+      } else {
+        obs.push(`Objetivo cubierto por comisión: ${comisionAsignada} (${objetivo} hs)`);
+      }
+    }
     if (s.comision !== 'Ninguna') obs.push(`Titular en comisión: ${s.comision}`);
     
     if (s.nucleo) {
@@ -4031,9 +4042,9 @@ function renderPlanilla() {
 
     if (hist.deudaAnterior > 0) {
       if (horasAplicadasADuda > 0) {
-        obs.push(`Deuda anterior: ${formatHours(hist.deudaAnterior)} hs, aplicadas: ${formatHours(horasAplicadasADuda)} hs, saldo: ${formatHours(deudaAnteriorEfectiva)}`);
+        obs.push(`Deuda anterior: ${formatHours(hist.deudaAnterior)}, aplicadas: ${formatHours(horasAplicadasADuda)}, saldo: ${formatHours(deudaAnteriorEfectiva)}`);
       } else {
-        obs.push(`Deuda arrastrada: ${formatHours(hist.deudaAnterior)} hs`);
+        obs.push(`Deuda arrastrada: ${formatHours(hist.deudaAnterior)}`);
       }
     }
     if (hist.remanenteAnterior > 0) {
@@ -4056,7 +4067,7 @@ function renderPlanilla() {
           ${formatHours(resComputables)}
         </span>
         ${resHoras.cubiertasPorComision ? `<div class="text-[8px] text-purple-600 font-bold">Cubiertas por comisión</div>` : ''}
-        ${resHoras.cubiertasPorComision && resHoras.fisicas > 0 ? `<div class="text-[8px] text-slate-400 line-through">${formatHours(resHoras.fisicas)} campo</div>` : ''}
+        ${resHoras.cubiertasPorComision ? (resHoras.tieneDeuda && horasFisicasMes > 0 ? `<div class="text-[8px] text-purple-600 font-bold">+${formatHours(horasFisicasMes)} hs a deuda</div>` : (resHoras.fisicas > 0 ? `<div class="text-[8px] text-slate-400 line-through">${formatHours(resHoras.fisicas)} campo</div>` : '')) : ''}
         ${resHoras.horasResto > 0 && !resHoras.cubiertasPorComision ? `<div class="text-[8px] ${resHoras.perdidas ? 'text-red-500' : 'text-amber-500'} font-bold">-${resHoras.horasResto} hs resto</div>` : ''}
       </td>
       <td class="py-3 px-4 text-center font-bold ${saldoDelMes < 0 ? 'text-amber-600' : 'text-emerald-600'}">
