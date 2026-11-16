@@ -4780,7 +4780,7 @@ async function exportPlanillaCSV() {
       const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
       const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
       const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-      const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva);
+      const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + hist.deudaAnterior);
       let saldoDelMes = resHoras.computables - objetivo;
       let totalCredito = resHoras.computables + hist.remanenteAnterior;
 
@@ -4884,7 +4884,7 @@ async function exportPlanillaPDF() {
       const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
       const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
       const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-      const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva); // Total hours to cover (objective + previous debt)
+      const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + hist.deudaAnterior); // Total hours to cover (objective + previous debt)
       const saldoDelMes = resHoras.computables - objetivo; // Balance for the current month's objective
       const totalCredito = resHoras.computables + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
 
