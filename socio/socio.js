@@ -212,7 +212,9 @@ function obtenerResultadoHorasSocio(socio, anio, mes) {
   return {
     ...horasCampo,
     cubiertasPorComision: false,
-    comision: null
+    comision: null,
+    tieneDeuda: false,
+    horasFisicasMes: horasCampo.computables
   };
 }
 
@@ -775,7 +777,34 @@ function renderMemberDashboard() {
   if (detalleObjetivo) {
     detalleObjetivo.textContent = `${formatHours(objetivo)} objetivo + ${formatHours(hist.deudaAnterior)} A Recuperar`;
   }
-  document.getElementById('member-kpi-realizadas').textContent = formatHours(resHoras.computables);
+  // Desglose de horas realizadas según caso de comisión
+  const comisionAsignada = obtenerComisionAsignadaNucleo(socio);
+  const tieneDeuda = (hist.deudaAnterior || 0) > 0;
+  const horasFisicasMes = resHoras.horasFisicasMes || 0;
+  const realizadasEl = document.getElementById('member-kpi-realizadas');
+  const detalleEl = document.getElementById('member-kpi-realizadas-detalle');
+
+  if (comisionAsignada && tieneDeuda) {
+    // Comisión con deuda: objetivo cubierto por comisión + horas físicas aplicadas a deuda
+    realizadasEl.textContent = formatHours(resHoras.computables);
+    if (detalleEl) {
+      detalleEl.textContent = `${formatHours(horasFisicasMes)} Trabajadas y ${formatHours(resHoras.computables - horasFisicasMes)} Por Comisión`;
+      detalleEl.classList.remove('hidden');
+    }
+  } else if (comisionAsignada && !tieneDeuda) {
+    // Comisión sin deuda: todo es por comisión
+    realizadasEl.textContent = formatHours(resHoras.computables);
+    if (detalleEl) {
+      detalleEl.textContent = `${formatHours(resHoras.computables)} Por Comisión`;
+      detalleEl.classList.remove('hidden');
+    }
+  } else {
+    // Solo horas físicas (sin comisión)
+    realizadasEl.textContent = formatHours(resHoras.computables);
+    if (detalleEl) {
+      detalleEl.classList.add('hidden');
+    }
+  }
 
   let saldoDisplay = '';
   if (remanenteFinal > 0) {
