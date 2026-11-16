@@ -3,10 +3,10 @@
 //  Scope: /socio/ (independiente del admin)
 // ============================================================
 
-const CACHE_NAME = 'covimt9-socio-v26-icono-cooperativo';
+const CACHE_NAME = 'covimt9-socio-v27-regla-comision-deuda';
 const STATIC_ASSETS = [
   'socio.html',
-  'socio.js?v=20261012-25',
+  'socio.js?v=20261116-01',
   'socio.css?v=20261012-25',
   'icons-socio.js?v=20261012-25',
   'manifest-socio.json?v=20261014-26',
