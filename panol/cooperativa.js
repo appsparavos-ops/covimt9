@@ -7,28 +7,35 @@
 async function guardarPDFConSelector(nombreSugerido, doc) {
   try {
     const arraybuffer = doc.output('arraybuffer');
-    const handle = await window.showSaveFilePicker({
-      suggestedName: nombreSugerido,
-      types: [{
-        description: 'Documento PDF',
-        accept: { 'application/pdf': ['.pdf'] }
-      }]
-    });
-    const writable = await handle.createWritable();
-    await writable.write(arraybuffer);
-    await writable.close();
+    // Intentar File System Access API (Chrome/Edge desktop)
+    if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: nombreSugerido,
+        types: [{
+          description: 'Documento PDF',
+          accept: { 'application/pdf': ['.pdf'] }
+        }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(arraybuffer);
+      await writable.close();
+      return true;
+    }
+    // Fallback: descarga tradicional (Firefox, móvil, otros)
+    doc.save(nombreSugerido);
     return true;
   } catch (err) {
     if (err.name === 'AbortError') {
       // El usuario canceló el selector
       return false;
     }
-    // Fallback: descarga tradicional al navegador
+    // Último recurso: descarga forzada
     try {
       doc.save(nombreSugerido);
       return true;
     } catch (e2) {
       console.error('Error guardando PDF:', e2);
+      showToast('Error al descargar el PDF. Intenta nuevamente.', 'error');
       return false;
     }
   }
@@ -4787,266 +4794,278 @@ function calculateHours(ingreso, salida) {
 }
 
 // --- TOAST FEEDBACK ---
-function exportPlanillaCSV() {
-  const anio = document.getElementById('planilla-anio').value;
-  const mes = document.getElementById('planilla-mes').value;
-  
-  if (socios.length === 0) {
-    showToast("No hay socios para exportar.", "info");
-    return;
-  }
+async function exportPlanillaCSV() {
+  try {
+    const anio = document.getElementById('planilla-anio').value;
+    const mes = document.getElementById('planilla-mes').value;
 
-  const sociosOrdenados = [...socios].sort((a, b) => {
-    const numA = parseInt(a.id, 10);
-    const numB = parseInt(b.id, 10);
-    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-    return String(a.id).localeCompare(String(b.id));
-  });
-
-  let csvContent = "sep=,\n";
-  csvContent += "Socio,Nº Socio,Edad,Horas Objetivo,Horas Computables,Saldo del Mes,Deuda Anterior,Remanente Anterior,Comprometidas,Total Crédito,Remanente Final,Deuda Final,Tesorería Antes,A Tesorería al Cierre,Observaciones\n";
-
-  sociosOrdenados.forEach(s => {
-    const fechaNac = new Date(s.fechaNacimiento);
-    const hoy = new Date();
-    const edad = hoy.getFullYear() - fechaNac.getFullYear() - (hoy.getMonth() < fechaNac.getMonth() || (hoy.getMonth() === fechaNac.getMonth() && hoy.getDate() < fechaNac.getDate()) ? 1 : 0);
-    
-    const exonerado = esNucleoExonerado(s);
-    const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
-    const comisionAsignada = obtenerComisionAsignadaNucleo(s);
-    const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
-    const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
-
-    const periodoEsLicencia = esPeriodoLicencia(anio, mes);
-    const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
-    const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
-    const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
-    const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-    const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva);
-    let saldoDelMes = objetivo - resHoras.computables;
-    let totalCredito = resHoras.computables + hist.remanenteAnterior;
-
-    let remanenteFinal = 0;
-    let deudaFinal = 0;
-    let pasajeProyectadoTesoreria = 0;
-
-    if (periodoEsLicencia) {
-      saldoDelMes = 0;
-      totalCredito = hist.remanenteAnterior;
-      remanenteFinal = hist.remanenteAnterior || 0;
-      deudaFinal = hist.deudaAnterior || 0;
-    } else if (totalCredito >= comprometidas) {
-      remanenteFinal = totalCredito - comprometidas;
-    } else {
-      deudaFinal = comprometidas - totalCredito;
-      const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
-      pasajeProyectadoTesoreria = Math.max(0, deudaAnteriorEfectiva - saldoTrasObjetivo);
-      // El saldo visible conserva toda la deuda pendiente; el pasaje proyectado se aplica al cerrar.
+    if (socios.length === 0) {
+      showToast("No hay socios para exportar.", "info");
+      return;
     }
 
-    let obs = [];
-    if (periodoEsLicencia) obs.push("Licencia: se cobra Tesorería y se pausa A Recuperar");
-    if (hist.tesoreriaPendiente > 0) obs.push(`A Tesorería este mes: ${formatHours(hist.tesoreriaPendiente)}`);
-    if (pasajeProyectadoTesoreria > 0) obs.push(`A Tesorería al cierre: ${formatHours(pasajeProyectadoTesoreria)}`);
-    if (exonerado) {
-      if (s.certificadoMedico) {
-        obs.push("Exonerado por certificado médico");
+    const sociosOrdenados = [...socios].sort((a, b) => {
+      const numA = parseInt(a.id, 10);
+      const numB = parseInt(b.id, 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+    let csvContent = "sep=,\n";
+    csvContent += "Socio,Nº Socio,Edad,Horas Objetivo,Horas Computables,Saldo del Mes,Deuda Anterior,Remanente Anterior,Comprometidas,Total Crédito,Remanente Final,Deuda Final,Tesorería Antes,A Tesorería al Cierre,Observaciones\n";
+
+    sociosOrdenados.forEach(s => {
+      const fechaNac = s.fechaNacimiento ? new Date(s.fechaNacimiento) : new Date();
+      const hoy = new Date();
+      const edad = fechaNac && !isNaN(fechaNac.getTime())
+        ? hoy.getFullYear() - fechaNac.getFullYear() - (hoy.getMonth() < fechaNac.getMonth() || (hoy.getMonth() === fechaNac.getMonth() && hoy.getDate() < fechaNac.getDate()) ? 1 : 0)
+        : 0;
+
+      const exonerado = esNucleoExonerado(s);
+      const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
+      const comisionAsignada = obtenerComisionAsignadaNucleo(s);
+      const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
+      const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
+
+      const periodoEsLicencia = esPeriodoLicencia(anio, mes);
+      const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
+      const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
+      const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
+      const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
+      const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva);
+      let saldoDelMes = resHoras.computables - objetivo;
+      let totalCredito = resHoras.computables + hist.remanenteAnterior;
+
+      let remanenteFinal = 0;
+      let deudaFinal = 0;
+      let pasajeProyectadoTesoreria = 0;
+
+      if (periodoEsLicencia) {
+        saldoDelMes = 0;
+        totalCredito = hist.remanenteAnterior;
+        remanenteFinal = hist.remanenteAnterior || 0;
+        deudaFinal = hist.deudaAnterior || 0;
+      } else if (totalCredito >= comprometidas) {
+        remanenteFinal = totalCredito - comprometidas;
       } else {
-        obs.push("Exonerado por edad");
+        deudaFinal = comprometidas - totalCredito;
+        const saldoTrasObjetivo = Math.max(0, totalCredito - objetivo);
+        pasajeProyectadoTesoreria = Math.max(0, deudaAnteriorEfectiva - saldoTrasObjetivo);
       }
-    }
-    if (!exonerado && comisionAsignada) obs.push(`Objetivo cubierto por comisión: ${comisionAsignada} (${objetivo} hs)`);
-    if (s.comision !== 'Ninguna') obs.push(`Titular en comisión: ${s.comision}`);
 
-    if (resHoras.horasResto > 0 && !resHoras.cubiertasPorComision) {
-      obs.push(resHoras.perdidas ? `Perdió ${resHoras.horasResto} hs (menor a 4 hs)` : `Resto ${resHoras.horasResto} hs no computables`);
-    }
+      let obs = [];
+      if (periodoEsLicencia) obs.push("Licencia: se cobra Tesorería y se pausa A Recuperar");
+      if (hist.tesoreriaPendiente > 0) obs.push(`A Tesorería este mes: ${formatHours(hist.tesoreriaPendiente)}`);
+      if (pasajeProyectadoTesoreria > 0) obs.push(`A Tesorería al cierre: ${formatHours(pasajeProyectadoTesoreria)}`);
+      if (exonerado) {
+        if (s.certificadoMedico) {
+          obs.push("Exonerado por certificado médico");
+        } else {
+          obs.push("Exonerado por edad");
+        }
+      }
+      if (!exonerado && comisionAsignada) obs.push(`Objetivo cubierto por comisión: ${comisionAsignada} (${objetivo} hs)`);
+      if (s.comision !== 'Ninguna') obs.push(`Titular en comisión: ${s.comision}`);
 
-    const observacionesStr = obs.join("; ");
-    const aTesoreriaCierreCSV = hist.cerrado
-      ? hist.tesoreriaCobradaEnPeriodo
-      : pasajeProyectadoTesoreria;
+      if (resHoras.horasResto > 0 && !resHoras.cubiertasPorComision) {
+        obs.push(resHoras.perdidas ? `Perdió ${resHoras.horasResto} hs (menor a 4 hs)` : `Resto ${resHoras.horasResto} hs no computables`);
+      }
 
-    csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${hist.tesoreriaAcumulada.toFixed(2)}","${aTesoreriaCierreCSV.toFixed(2)}","${observacionesStr}"\n`;
-  });
+      const observacionesStr = obs.join("; ");
+      const aTesoreriaCierreCSV = hist.cerrado
+        ? hist.tesoreriaCobradaEnPeriodo
+        : pasajeProyectadoTesoreria;
 
-  // Crear blob y descargar
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  const url = URL.createObjectURL(blob);
-  link.setAttribute('href', url);
-  link.setAttribute('download', `planilla-${mes}-${anio}.csv`);
-  link.style.visibility = 'hidden';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  showToast(`Planilla exportada: planilla-${mes}-${anio}.csv`, "success");
+      csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${hist.tesoreriaAcumulada.toFixed(2)}","${aTesoreriaCierreCSV.toFixed(2)}","${observacionesStr}"\n`;
+    });
+
+    // Crear blob y descargar
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `planilla-${mes}-${anio}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast(`Planilla exportada: planilla-${mes}-${anio}.csv`, "success");
+  } catch (err) {
+    console.error('Error exportando CSV:', err);
+    showToast('Error al exportar la planilla CSV: ' + err.message, 'error');
+  }
 }
 
 /**
  * Genera un PDF optimizado para impresión A4 con los datos de la planilla mensual.
  */
 async function exportPlanillaPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF('p', 'mm', 'a4');
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4');
 
-  const anio = document.getElementById('planilla-anio').value;
-  const mesNum = document.getElementById('planilla-mes').value;
-  const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-  const mesNombre = meses[parseInt(mesNum) - 1];
+    const anio = document.getElementById('planilla-anio').value;
+    const mesNum = document.getElementById('planilla-mes').value;
+    const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+    const mesNombre = meses[parseInt(mesNum) - 1];
 
-  if (socios.length === 0) {
-    showToast("No hay socios para exportar.", "info");
-    return;
-  }
+    if (socios.length === 0) {
+      showToast("No hay socios para exportar.", "info");
+      return;
+    }
 
-  // Ordenar socios por ID numérico
-  const sociosOrdenados = [...socios].sort((a, b) => {
-    const numA = parseInt(a.id, 10);
-    const numB = parseInt(b.id, 10);
-    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-    return String(a.id).localeCompare(String(b.id));
-  });
+    // Ordenar socios por ID numérico
+    const sociosOrdenados = [...socios].sort((a, b) => {
+      const numA = parseInt(a.id, 10);
+      const numB = parseInt(b.id, 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return String(a.id).localeCompare(String(b.id));
+    });
 
-  const tableData = sociosOrdenados.map(s => {
-    const objetivo = obtenerObjetivoHorasSocio(s, anio, mesNum);
-    const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
-    const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
-    const comisionAsignada = obtenerComisionAsignadaNucleo(s);
-    const exonerado = esNucleoExonerado(s); // Check if the entire nucleus is exempt
+    const tableData = sociosOrdenados.map(s => {
+      const objetivo = obtenerObjetivoHorasSocio(s, anio, mesNum);
+      const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
+      const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
+      const comisionAsignada = obtenerComisionAsignadaNucleo(s);
+      const exonerado = esNucleoExonerado(s); // Check if the entire nucleus is exempt
 
-    // Calculations for the current month's display
-    const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
-    const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
-    const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
-    const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-    const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva); // Total hours to cover (objective + previous debt)
-    const saldoDelMes = resHoras.computables - objetivo; // Balance for the current month's objective
-    const totalCredito = resHoras.computables + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
+      // Calculations for the current month's display
+      const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
+      const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
+      const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
+      const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
+      const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + deudaAnteriorEfectiva); // Total hours to cover (objective + previous debt)
+      const saldoDelMes = resHoras.computables - objetivo; // Balance for the current month's objective
+      const totalCredito = resHoras.computables + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
 
-    let remanenteFinal = 0;
-    let deudaFinal = 0;
-    let pasajeATesoreriaCalculado = 0;
-    const periodoEsLicencia = esPeriodoLicencia(anio, mesNum);
+      let remanenteFinal = 0;
+      let deudaFinal = 0;
+      let pasajeATesoreriaCalculado = 0;
+      const periodoEsLicencia = esPeriodoLicencia(anio, mesNum);
 
-    if (periodoEsLicencia) {
-      remanenteFinal = hist.remanenteAnterior || 0;
-      deudaFinal = hist.deudaAnterior || 0;
-      pasajeATesoreriaCalculado = 0;
-    } else if (totalCredito >= comprometidas) {
-      remanenteFinal = totalCredito - comprometidas;
-    } else {
-      deudaFinal = comprometidas - totalCredito;
-      const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
-      if (saldoTrasMesCorriente < hist.deudaAnterior) {
-        pasajeATesoreriaCalculado = Math.max(0, deudaAnteriorEfectiva - saldoTrasMesCorriente);
-        // El PDF muestra la deuda pendiente actual completa; el pasaje se concreta al cerrar.
+      if (periodoEsLicencia) {
+        remanenteFinal = hist.remanenteAnterior || 0;
+        deudaFinal = hist.deudaAnterior || 0;
+        pasajeATesoreriaCalculado = 0;
+      } else if (totalCredito >= comprometidas) {
+        remanenteFinal = totalCredito - comprometidas;
+      } else {
+        deudaFinal = comprometidas - totalCredito;
+        const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
+        if (saldoTrasMesCorriente < hist.deudaAnterior) {
+          pasajeATesoreriaCalculado = Math.max(0, deudaAnteriorEfectiva - saldoTrasMesCorriente);
+          // El PDF muestra la deuda pendiente actual completa; el pasaje se concreta al cerrar.
+        }
       }
-    }
 
-    // Round all hour values to integers for display
-    const saldoAnt = Math.round(hist.remanenteAnterior - hist.deudaAnterior);
-    const comprometidasRounded = Math.round(comprometidas);
-    const resHorasComputablesRounded = Math.round(resHoras.computables);
-    const saldoDelMesRounded = Math.round(saldoDelMes);
-    const saldoTot = Math.round(remanenteFinal - deudaFinal);
-    const deudaAnteriorRounded = Math.round(hist.deudaAnterior);
-    const pasajeATesoreriaRounded = Math.round(hist.cerrado
-      ? hist.tesoreriaPasadaEnCierre
-      : pasajeATesoreriaCalculado);
-    const deudaGeneradaEsteMesRounded = (saldoDelMesRounded < 0) ? Math.abs(saldoDelMesRounded) : 0;
+      // Round all hour values to integers for display
+      const saldoAnt = Math.round(hist.remanenteAnterior - hist.deudaAnterior);
+      const comprometidasRounded = Math.round(comprometidas);
+      const resHorasComputablesRounded = Math.round(resHoras.computables);
+      const saldoDelMesRounded = Math.round(saldoDelMes);
+      const saldoTot = Math.round(remanenteFinal - deudaFinal);
+      const deudaAnteriorRounded = Math.round(hist.deudaAnterior);
+      const pasajeATesoreriaRounded = Math.round(hist.cerrado
+        ? hist.tesoreriaPasadaEnCierre
+        : pasajeATesoreriaCalculado);
+      const deudaGeneradaEsteMesRounded = (saldoDelMesRounded < 0) ? Math.abs(saldoDelMesRounded) : 0;
 
-    // Observaciones abreviadas para ahorrar espacio
-    let obs = [];
-    if (periodoEsLicencia) obs.push("Licencia: A Recuperar pasa al mes siguiente");
-    const cobradoEnPeriodo = hist.cerrado ? hist.tesoreriaCobradaEnPeriodo : hist.tesoreriaPendiente;
-    if (cobradoEnPeriodo > 0) obs.push(`Tesorería imputada al cierre: ${formatHours(Math.round(cobradoEnPeriodo))}`);
-    if (exonerado) obs.push(s.certificadoMedico ? "Exon.Méd." : "Exon.Edad");
-    if (!exonerado && comisionAsignada) obs.push(`Com: ${comisionAsignada.split(' ').pop()}`);
+      // Observaciones abreviadas para ahorrar espacio
+      let obs = [];
+      if (periodoEsLicencia) obs.push("Licencia: A Recuperar pasa al mes siguiente");
+      const cobradoEnPeriodo = hist.cerrado ? hist.tesoreriaCobradaEnPeriodo : hist.tesoreriaPendiente;
+      if (cobradoEnPeriodo > 0) obs.push(`Tesorería imputada al cierre: ${formatHours(Math.round(cobradoEnPeriodo))}`);
+      if (exonerado) obs.push(s.certificadoMedico ? "Exon.Méd." : "Exon.Edad");
+      if (!exonerado && comisionAsignada) obs.push(`Com: ${comisionAsignada.split(' ').pop()}`);
 
-    if (resHoras.horasResto > 0 && !comisionAsignada) {
-      obs.push(resHoras.perdidas ? `Pérd. Total ${resHoras.horasResto}h` : `Resto -${resHoras.horasResto}h`);
-    }
+      if (resHoras.horasResto > 0 && !comisionAsignada) {
+        obs.push(resHoras.perdidas ? `Pérd. Total ${resHoras.horasResto}h` : `Resto -${resHoras.horasResto}h`);
+      }
 
-    // New observation logic based on user requirements
-    // Cuando el socio está en comisión con deuda, las horas del mes están cubiertas
-    // por comisión y la deuda anterior no recuperada pasa a tesorería. No hay
-    // "A Recuperar" porque el socio no debe recuperar nada personalmente.
-    const esComisionConDeuda = comisionAsignada && tieneDeuda;
+      // New observation logic based on user requirements
+      // Cuando el socio está en comisión con deuda, las horas del mes están cubiertas
+      // por comisión y la deuda anterior no recuperada pasa a tesorería. No hay
+      // "A Recuperar" porque el socio no debe recuperar nada personalmente.
+      const esComisionConDeuda = comisionAsignada && tieneDeuda;
 
-    if (esComisionConDeuda) {
-      if (pasajeATesoreriaRounded > 0) {
+      if (esComisionConDeuda) {
+        if (pasajeATesoreriaRounded > 0) {
+          obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)}`);
+        }
+      } else if (deudaFinal > 0) {
+        if (pasajeATesoreriaRounded > 0) {
+          obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)} A Recuperar ${formatHours(deudaFinal)}`);
+        } else {
+          obs.push(`A Recuperar ${formatHours(deudaFinal)}`);
+        }
+      } else if (pasajeATesoreriaRounded > 0) {
         obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)}`);
       }
-    } else if (deudaFinal > 0) {
-      if (pasajeATesoreriaRounded > 0) {
-        obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)} A Recuperar ${formatHours(deudaFinal)}`);
-      } else {
-        obs.push(`A Recuperar ${formatHours(deudaFinal)}`);
+
+      return [
+        s.id,
+        s.nombre.length > 22 ? s.nombre.substring(0, 20) + ".." : s.nombre,
+        saldoAnt,
+        formatHours(comprometidasRounded),
+        formatHours(resHorasComputablesRounded),
+        formatHours(saldoDelMesRounded),
+        formatHours(saldoTot),
+        obs.join(" | ").replace(/Hs/g, 'Hs') // Ensure 'Hs' is consistent
+      ];
+    });
+
+    // Encabezados de columna abreviados
+    const head = [['ID', 'Nombre', 'S. Ant.', 'H. Compr.', 'H. Real.', 'S. Mes', 'S. Tot.', 'Observaciones']];
+
+    doc.autoTable({
+      head: head,
+      body: tableData,
+      startY: 25,
+      theme: 'grid',
+      styles: {
+        fontSize: 7.5, // Tamaño reducido para que entren más filas
+        cellPadding: 1.2,
+        valign: 'middle'
+      },
+      headStyles: {
+        fillColor: [5, 150, 105], // Color brand-600
+        halign: 'center'
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 42 },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 15, halign: 'center' },
+        4: { cellWidth: 15, halign: 'center' },
+        5: { cellWidth: 15, halign: 'center' },
+        6: { cellWidth: 15, halign: 'center' },
+        7: { cellWidth: 'auto' }
+      },
+      margin: { top: 25, bottom: 15 },
+      didDrawPage: function (data) {
+        // Encabezado en cada página
+        const logo = document.getElementById('logo-coop');
+        let headerX = data.settings.margin.left;
+        // Verificamos que el logo esté cargado para evitar errores de jsPDF
+        if (logo && logo.complete && logo.naturalWidth !== 0) {
+          try { doc.addImage(logo, 'PNG', headerX, 8, 12, 12); headerX += 15; } catch(e) { console.error("Error al añadir logo al PDF:", e); }
+        }
+        doc.setFontSize(11);
+        doc.setTextColor(40);
+        doc.setFont(undefined, 'bold');
+        doc.text(`COVIMT 9 - Estado de horas de ${mesNombre} de ${anio}`, headerX, 15);
+        doc.setFontSize(9);
+        doc.text(`Página ${data.pageNumber}`, 180, 15);
       }
-    } else if (pasajeATesoreriaRounded > 0) {
-      obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)}`);
-    }
+    });
 
-    return [
-      s.id,
-      s.nombre.length > 22 ? s.nombre.substring(0, 20) + ".." : s.nombre,
-      saldoAnt,
-      formatHours(comprometidasRounded),
-      formatHours(resHorasComputablesRounded),
-      formatHours(saldoDelMesRounded),
-      formatHours(saldoTot),
-      obs.join(" | ").replace(/Hs/g, 'Hs') // Ensure 'Hs' is consistent
-    ];
-  });
-
-  // Encabezados de columna abreviados
-  const head = [['ID', 'Nombre', 'S. Ant.', 'H. Compr.', 'H. Real.', 'S. Mes', 'S. Tot.', 'Observaciones']];
-
-  doc.autoTable({
-    head: head,
-    body: tableData,
-    startY: 25,
-    theme: 'grid',
-    styles: {
-      fontSize: 7.5, // Tamaño reducido para que entren más filas
-      cellPadding: 1.2,
-      valign: 'middle'
-    },
-    headStyles: {
-      fillColor: [5, 150, 105], // Color brand-600
-      halign: 'center'
-    },
-    columnStyles: {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 42 },
-      2: { cellWidth: 15, halign: 'center' },
-      3: { cellWidth: 15, halign: 'center' },
-      4: { cellWidth: 15, halign: 'center' },
-      5: { cellWidth: 15, halign: 'center' },
-      6: { cellWidth: 15, halign: 'center' },
-      7: { cellWidth: 'auto' }
-    },
-    margin: { top: 25, bottom: 15 },
-    didDrawPage: function (data) {
-      // Encabezado en cada página
-      const logo = document.getElementById('logo-coop');
-      let headerX = data.settings.margin.left;
-      // Verificamos que el logo esté cargado para evitar errores de jsPDF
-      if (logo && logo.complete && logo.naturalWidth !== 0) {
-        try { doc.addImage(logo, 'PNG', headerX, 8, 12, 12); headerX += 15; } catch(e) { console.error("Error al añadir logo al PDF:", e); }
-      }
-      doc.setFontSize(11);
-      doc.setTextColor(40);
-      doc.setFont(undefined, 'bold');
-      doc.text(`COVIMT 9 - Estado de horas de ${mesNombre} de ${anio}`, headerX, 15);
-      doc.setFontSize(9);
-      doc.text(`Página ${data.pageNumber}`, 180, 15);
-    }
-  });
-
-  await guardarPDFConSelector(`COVIMT9_Estado_Horas_${mesNum}_${anio}.pdf`, doc);
-  showToast("Planilla PDF generada correctamente.", "success");
+    await guardarPDFConSelector(`COVIMT9_Estado_Horas_${mesNum}_${anio}.pdf`, doc);
+    showToast("Planilla PDF generada correctamente.", "success");
+  } catch (err) {
+    console.error('Error exportando PDF:', err);
+    showToast('Error al exportar el PDF: ' + err.message, 'error');
+  }
 }
 
 function openInformeMensualModal() {
