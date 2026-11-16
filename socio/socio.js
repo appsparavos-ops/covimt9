@@ -178,15 +178,35 @@ function obtenerResultadoHorasSocio(socio, anio, mes) {
   const horasCampo = obtenerHorasRealizadasNucleo(socio.id, anio, mes);
   const objetivo = obtenerObjetivoHorasSocio(socio, anio, mes);
   const comisionAsignada = obtenerComisionAsignadaNucleo(socio);
+  const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
+  const tieneDeuda = (hist.deudaAnterior || 0) > 0;
 
   if (objetivo > 0 && comisionAsignada) {
-    return {
-      fisicas: horasCampo.fisicas,
-      computables: objetivo,
-      perdidas: false,
-      cubiertasPorComision: true,
-      comision: comisionAsignada
-    };
+    if (tieneDeuda) {
+      // Comisión con deuda: horas computables = objetivo (cubierto por comisión)
+      // + horas físicas aplicadas a la deuda anterior (múltiplos de 4)
+      const horasFisicasMesVal = horasCampo.computables;
+      return {
+        fisicas: horasCampo.fisicas,
+        computables: objetivo + horasFisicasMesVal,
+        perdidas: false,
+        cubiertasPorComision: true,
+        comision: comisionAsignada,
+        tieneDeuda: true,
+        horasFisicasMes: horasFisicasMesVal
+      };
+    } else {
+      // Comisión sin deuda: solo objetivo, horas físicas no se computan
+      return {
+        fisicas: 0,
+        computables: objetivo,
+        perdidas: false,
+        cubiertasPorComision: true,
+        comision: comisionAsignada,
+        tieneDeuda: false,
+        horasFisicasMes: 0
+      };
+    }
   }
 
   return {
@@ -755,7 +775,7 @@ function renderMemberDashboard() {
   if (detalleObjetivo) {
     detalleObjetivo.textContent = `${formatHours(objetivo)} objetivo + ${formatHours(hist.deudaAnterior)} A Recuperar`;
   }
-  document.getElementById('member-kpi-realizadas').textContent = formatHours(resHoras.fisicas);
+  document.getElementById('member-kpi-realizadas').textContent = formatHours(resHoras.computables);
 
   let saldoDisplay = '';
   if (remanenteFinal > 0) {
