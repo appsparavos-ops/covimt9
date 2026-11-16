@@ -4917,9 +4917,16 @@ async function exportPlanillaPDF() {
     }
 
     // New observation logic based on user requirements
-    // Solo mostrar "A Recuperar" si hay deuda final real (saldo total negativo).
-    // Si el socio tiene remanente suficiente para cubrir todo, no hay nada que recuperar.
-    if (deudaFinal > 0) {
+    // Cuando el socio está en comisión con deuda, las horas del mes están cubiertas
+    // por comisión y la deuda anterior no recuperada pasa a tesorería. No hay
+    // "A Recuperar" porque el socio no debe recuperar nada personalmente.
+    const esComisionConDeuda = comisionAsignada && tieneDeuda;
+
+    if (esComisionConDeuda) {
+      if (pasajeATesoreriaRounded > 0) {
+        obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)}`);
+      }
+    } else if (deudaFinal > 0) {
       if (pasajeATesoreriaRounded > 0) {
         obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)} A Recuperar ${formatHours(deudaFinal)}`);
       } else {
