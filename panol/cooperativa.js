@@ -4833,8 +4833,9 @@ async function exportPlanillaCSV() {
       const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
       const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
       const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + hist.deudaAnterior);
-      let saldoDelMes = resHoras.computables - objetivo;
-      let totalCredito = resHoras.computables + hist.remanenteAnterior;
+      const computablesMostrar = comisionAsignada && tieneDeuda ? (objetivo + horasFisicasMesVal) : resHoras.computables;
+      let saldoDelMes = computablesMostrar - objetivo;
+      let totalCredito = computablesMostrar + hist.remanenteAnterior;
 
       let remanenteFinal = 0;
       let deudaFinal = 0;
@@ -4876,7 +4877,7 @@ async function exportPlanillaCSV() {
         ? hist.tesoreriaCobradaEnPeriodo
         : pasajeProyectadoTesoreria;
 
-      csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${resHoras.computables.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${hist.tesoreriaAcumulada.toFixed(2)}","${aTesoreriaCierreCSV.toFixed(2)}","${observacionesStr}"\n`;
+      csvContent += `"${s.nombre}","${s.id}","${edad}","${objetivo}","${computablesMostrar.toFixed(2)}","${saldoDelMes.toFixed(2)}","${hist.deudaAnterior.toFixed(2)}","${hist.remanenteAnterior.toFixed(2)}","${comprometidas.toFixed(2)}","${totalCredito.toFixed(2)}","${remanenteFinal.toFixed(2)}","${deudaFinal.toFixed(2)}","${hist.tesoreriaAcumulada.toFixed(2)}","${aTesoreriaCierreCSV.toFixed(2)}","${observacionesStr}"\n`;
     });
 
     // Crear blob y descargar
@@ -4937,8 +4938,10 @@ async function exportPlanillaPDF() {
       const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
       const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
       const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + hist.deudaAnterior); // Total hours to cover (objective + previous debt)
-      const saldoDelMes = resHoras.computables - objetivo; // Balance for the current month's objective
-      const totalCredito = resHoras.computables + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
+      // Cuando hay comisión con deuda, las horas computables = objetivo (cubierto por comisión) + horas físicas aplicadas a deuda
+      const computablesMostrar = comisionAsignada && tieneDeuda ? (objetivo + horasFisicasMesVal) : resHoras.computables;
+      const saldoDelMes = computablesMostrar - objetivo; // Balance for the current month's objective
+      const totalCredito = computablesMostrar + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
 
       let remanenteFinal = 0;
       let deudaFinal = 0;
@@ -4963,7 +4966,7 @@ async function exportPlanillaPDF() {
       // Round all hour values to integers for display
       const saldoAnt = Math.round(hist.remanenteAnterior - hist.deudaAnterior);
       const comprometidasRounded = Math.round(comprometidas);
-      const resHorasComputablesRounded = Math.round(resHoras.computables);
+      const resHorasComputablesRounded = Math.round(computablesMostrar);
       const saldoDelMesRounded = Math.round(saldoDelMes);
       const saldoTot = Math.round(remanenteFinal - deudaFinal);
       const deudaAnteriorRounded = Math.round(hist.deudaAnterior);
