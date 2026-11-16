@@ -749,7 +749,22 @@ function getSocioSnapshot(socio, targetDateStr) {
     return targetDate >= desde && (!hasta || targetDate < hasta);
   });
 
-  return snapshot ? { ...snapshot, id: socio.id } : socio; // Aseguramos que el snapshot tenga el ID del socio
+  if (!snapshot) return socio;
+
+  // Fusionar: datos del historial para saber quién era titular (nombre, fechas),
+  // pero la comisión siempre se toma del objeto socio actual (fuente de verdad).
+  const resultado = { ...snapshot, id: socio.id };
+  resultado.comision = socio.comision;
+
+  // Para familiares del núcleo, fusionar con comisiones actuales
+  if (socio.nucleo && Array.isArray(resultado.nucleo)) {
+    resultado.nucleo = resultado.nucleo.map((f, idx) => {
+      const familiarActual = socio.nucleo[idx];
+      return { ...f, comision: familiarActual ? familiarActual.comision : f.comision };
+    });
+  }
+
+  return resultado;
 }
 
 function openGestionEstadoModal(socioId, accion) {
@@ -4902,14 +4917,16 @@ async function exportPlanillaPDF() {
     }
 
     // New observation logic based on user requirements
-    if (deudaAnteriorRounded > 0 && pasajeATesoreriaRounded > 0) {
-      if (deudaGeneradaEsteMesRounded > 0) {
-        obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)} A Recuperar ${formatHours(deudaGeneradaEsteMesRounded)}`);
+    // Solo mostrar "A Recuperar" si hay deuda final real (saldo total negativo).
+    // Si el socio tiene remanente suficiente para cubrir todo, no hay nada que recuperar.
+    if (deudaFinal > 0) {
+      if (pasajeATesoreriaRounded > 0) {
+        obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)} A Recuperar ${formatHours(deudaFinal)}`);
       } else {
-        obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)}`);
+        obs.push(`A Recuperar ${formatHours(deudaFinal)}`);
       }
-    } else if (deudaAnteriorRounded === 0 && deudaGeneradaEsteMesRounded > 0) {
-      obs.push(`A Recuperar ${formatHours(deudaGeneradaEsteMesRounded)}`);
+    } else if (pasajeATesoreriaRounded > 0) {
+      obs.push(`A Tesoreria ${formatHours(pasajeATesoreriaRounded)}`);
     }
 
     return [
