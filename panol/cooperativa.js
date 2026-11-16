@@ -4929,6 +4929,7 @@ async function exportPlanillaPDF() {
       const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
       const comisionAsignada = obtenerComisionAsignadaNucleo(s);
       const exonerado = esNucleoExonerado(s); // Check if the entire nucleus is exempt
+      const tieneDeuda = (hist.deudaAnterior || 0) > 0;
 
       // Calculations for the current month's display
       const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
