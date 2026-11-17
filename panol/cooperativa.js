@@ -4909,6 +4909,82 @@ async function exportPlanillaCSV() {
 /**
  * Genera un PDF optimizado para impresión A4 con los datos de la planilla mensual.
  */
+// ============================================================
+//  HORAS "A RECUPERAR" VENCIDAS -> TESORERIA
+//  Regla cooperativa (compartida por el PDF mensual y el Reporte Tesorería):
+//   · El socio debe cumplir las horas objetivo del mes.
+//   · Si no las cumple, ese déficit NO pasa a Tesorería: pasa como "A Recuperar"
+//     al mes siguiente y tiene todo ese mes para recuperarlo.
+//   · Para recuperar debe cubrir PRIMERO el objetivo del mes en curso; sólo el
+//     excedente se aplica a la deuda anterior (horas atrasadas).
+//   · Lo que recupera NO pasa a Tesorería; lo que queda sin recuperar al cierre
+//     son las horas "A Recuperar" vencidas y ESAS SÍ pasan a Tesorería.
+//  La matemática es la misma que usa el PDF mensual para la observación
+//  "A Tesoreria X": mantiene un único origen de la regla.
+//
+//  OJO con el estado del mes:
+//   · Mes CERRADO  -> el pasaje ya está registrado en el cierre contable
+//                     (tesoreriaPasadaEnCierre). Ese es el valor definitivo.
+//   · Mes ABIERTO  -> el valor es sólo una PROYECCIÓN: hasta el cierre el socio
+//                     puede recuperar lo atrasado. El PDF mensual la muestra
+//                     como estimación; el Reporte Tesorería NO la usa.
+// ============================================================
+function calcularVencidasTesoreriaSocio(s, anio, mes) {
+  const objetivo = obtenerObjetivoHorasSocio(s, anio, mes);
+  const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mes);
+  const resHoras = obtenerResultadoHorasSocio(s, anio, mes);
+  const comisionAsignada = obtenerComisionAsignadaNucleo(s);
+  const exonerado = esNucleoExonerado(s);
+  const tieneDeuda = (hist.deudaAnterior || 0) > 0;
+
+  const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
+  const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
+  const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
+  const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
+  const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + hist.deudaAnterior);
+  const computablesMostrar = comisionAsignada && tieneDeuda ? (objetivo + horasFisicasMesVal) : resHoras.computables;
+  const saldoDelMes = computablesMostrar - objetivo;
+  const totalCredito = computablesMostrar + hist.remanenteAnterior;
+
+  let remanenteFinal = 0;
+  let deudaFinal = 0;
+  let pasajeCalculado = 0;
+  const periodoEsLicencia = esPeriodoLicencia(anio, mes);
+
+  if (periodoEsLicencia) {
+    // En licencia la recuperación se pausa: nada vence, la deuda pasa al mes siguiente.
+    remanenteFinal = hist.remanenteAnterior || 0;
+    deudaFinal = hist.deudaAnterior || 0;
+    pasajeCalculado = 0;
+  } else if (totalCredito >= comprometidas) {
+    remanenteFinal = totalCredito - comprometidas;
+  } else {
+    deudaFinal = comprometidas - totalCredito;
+    // Primero se cubre el objetivo del mes; sólo el excedente recupera la deuda anterior.
+    const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
+    if (saldoTrasMesCorriente < hist.deudaAnterior) {
+      pasajeCalculado = Math.max(0, deudaAnteriorEfectiva - saldoTrasMesCorriente);
+    }
+  }
+
+  // Con el período cerrado el pasaje ya quedó registrado en el cierre contable.
+  const vencidas = hist.cerrado ? (hist.tesoreriaPasadaEnCierre || 0) : pasajeCalculado;
+  const deudaPendiente = hist.deudaAnterior || 0;
+
+  return {
+    objetivo, hist, resHoras, comisionAsignada, exonerado, tieneDeuda,
+    tieneComisionSinDeuda, horasFisicasMesVal, horasAplicadasADuda, deudaAnteriorEfectiva,
+    comprometidas, computablesMostrar, saldoDelMes, totalCredito,
+    remanenteFinal, deudaFinal, pasajeCalculado, periodoEsLicencia,
+    // Horas A Recuperar (del mes anterior) que VENCIERON: no se recuperaron tras
+    // cubrir el objetivo del mes y por eso pasan a Tesorería.
+    vencidas,
+    // Parte de la deuda anterior que el socio sí logró recuperar en el mes.
+    recuperadas: periodoEsLicencia ? 0 : Math.max(0, Math.min(deudaPendiente, deudaPendiente - vencidas))
+  };
+}
+
+
 async function exportPlanillaPDF() {
   try {
     const { jsPDF } = window.jspdf;
@@ -4924,52 +5000,47 @@ async function exportPlanillaPDF() {
       return;
     }
 
-    // Ordenar socios por ID numérico
-    const sociosOrdenados = [...socios].sort((a, b) => {
-      const numA = parseInt(a.id, 10);
-      const numB = parseInt(b.id, 10);
-      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-      return String(a.id).localeCompare(String(b.id));
-    });
+    // Sólo los socios registrados en el mes consultado: se toma la foto del socio
+    // al último día del mes, igual que hace la planilla en pantalla y el informe mensual.
+    const ultimoDiaMes = new Date(Number(anio), Number(mesNum), 0).getDate();
+    const fechaCorteMes = `${anio}-${String(mesNum).padStart(2, '0')}-${String(ultimoDiaMes).padStart(2, '0')}`;
+    const sociosOrdenados = socios
+      .map(original => {
+        const snapshot = getSocioSnapshot(original, fechaCorteMes);
+        return snapshot ? { ...original, ...snapshot, id: original.id, nucleo: original.nucleo || [] } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const numA = parseInt(a.id, 10);
+        const numB = parseInt(b.id, 10);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return String(a.id).localeCompare(String(b.id));
+      });
+
+    if (sociosOrdenados.length === 0) {
+      showToast(`No hay socios registrados en ${mesNombre} de ${anio}.`, "info");
+      return;
+    }
 
     const tableData = sociosOrdenados.map(s => {
-      const objetivo = obtenerObjetivoHorasSocio(s, anio, mesNum);
-      const hist = obtenerSaldoHistoricoAlMes(s.id, anio, mesNum);
-      const resHoras = obtenerResultadoHorasSocio(s, anio, mesNum);
-      const comisionAsignada = obtenerComisionAsignadaNucleo(s);
-      const exonerado = esNucleoExonerado(s); // Check if the entire nucleus is exempt
-      const tieneDeuda = (hist.deudaAnterior || 0) > 0;
-
-      // Calculations for the current month's display
-      const tieneComisionSinDeuda = resHoras.cubiertasPorComision && !resHoras.tieneDeuda;
-      const horasFisicasMesVal = tieneComisionSinDeuda ? 0 : (resHoras.cubiertasPorComision ? resHoras.horasFisicasMes : 0);
-      const horasAplicadasADuda = Math.min(horasFisicasMesVal, hist.deudaAnterior);
-      const deudaAnteriorEfectiva = Math.max(0, hist.deudaAnterior - horasAplicadasADuda);
-      const comprometidas = tieneComisionSinDeuda ? objetivo : (objetivo + hist.deudaAnterior); // Total hours to cover (objective + previous debt)
-      // Cuando hay comisión con deuda, las horas computables = objetivo (cubierto por comisión) + horas físicas aplicadas a deuda
-      const computablesMostrar = comisionAsignada && tieneDeuda ? (objetivo + horasFisicasMesVal) : resHoras.computables;
-      const saldoDelMes = computablesMostrar - objetivo; // Balance for the current month's objective
-      const totalCredito = computablesMostrar + hist.remanenteAnterior; // Total available credit (current work + previous surplus)
-
-      let remanenteFinal = 0;
-      let deudaFinal = 0;
-      let pasajeATesoreriaCalculado = 0;
-      const periodoEsLicencia = esPeriodoLicencia(anio, mesNum);
-
-      if (periodoEsLicencia) {
-        remanenteFinal = hist.remanenteAnterior || 0;
-        deudaFinal = hist.deudaAnterior || 0;
-        pasajeATesoreriaCalculado = 0;
-      } else if (totalCredito >= comprometidas) {
-        remanenteFinal = totalCredito - comprometidas;
-      } else {
-        deudaFinal = comprometidas - totalCredito;
-        const saldoTrasMesCorriente = Math.max(0, totalCredito - objetivo);
-        if (saldoTrasMesCorriente < hist.deudaAnterior) {
-          pasajeATesoreriaCalculado = Math.max(0, deudaAnteriorEfectiva - saldoTrasMesCorriente);
-          // El PDF muestra la deuda pendiente actual completa; el pasaje se concreta al cerrar.
-        }
-      }
+      // Reglas unificadas: mismo cálculo que usa el Reporte Tesorería.
+      const calc = calcularVencidasTesoreriaSocio(s, anio, mesNum);
+      const objetivo = calc.objetivo;
+      const hist = calc.hist;
+      const resHoras = calc.resHoras;
+      const comisionAsignada = calc.comisionAsignada;
+      const exonerado = calc.exonerado;
+      const tieneDeuda = calc.tieneDeuda;
+      const horasFisicasMesVal = calc.horasFisicasMesVal;
+      const deudaAnteriorEfectiva = calc.deudaAnteriorEfectiva;
+      const comprometidas = calc.comprometidas;
+      const computablesMostrar = calc.computablesMostrar;
+      const saldoDelMes = calc.saldoDelMes;
+      const totalCredito = calc.totalCredito;
+      const remanenteFinal = calc.remanenteFinal;
+      const deudaFinal = calc.deudaFinal;
+      const pasajeATesoreriaCalculado = calc.pasajeCalculado;
+      const periodoEsLicencia = calc.periodoEsLicencia;
 
       // Round all hour values to integers for display
       const saldoAnt = Math.round(hist.remanenteAnterior - hist.deudaAnterior);
@@ -5386,6 +5457,10 @@ async function exportReporteTesoreriaPDF() {
   const mesNum = document.getElementById('planilla-mes').value;
   const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
   const mesNombre = meses[parseInt(mesNum) - 1];
+  // El reporte de un mes muestra las horas del mes ANTERIOR que no se recuperaron.
+  const mesAnteriorNombre = meses[(parseInt(mesNum, 10) + 10) % 12];
+  const anioAnterior = parseInt(mesNum, 10) === 1 ? String(parseInt(anio, 10) - 1) : String(anio);
+  const mesAnteriorTxt = anioAnterior === String(anio) ? mesAnteriorNombre : `${mesAnteriorNombre} ${anioAnterior}`;
 
   if (socios.length === 0) {
     showToast("No hay socios para exportar.", "info");
@@ -5400,12 +5475,29 @@ async function exportReporteTesoreriaPDF() {
   });
 
   const tableData = [];
+  const resumenData = [];   // segunda hoja: sólo ID, socio y horas a Tesorería
+  let totalARecuperar = 0;
+  let totalRecuperadas = 0;
+  let totalVencidas = 0;
   let totalCobradoAntes = 0;
   let totalCobradoMes = 0;
+  let hayMesCerrado = false;
+  let hayMesAbierto = false;
 
   sociosOrdenados.forEach(socio => {
-    const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mesNum);
-    const aRecuperar = hist.deudaAnterior || 0;
+    // Mismas reglas del PDF mensual: objetivo del mes primero, el excedente
+    // recupera la deuda anterior y lo que no se recupera VENCE y pasa a Tesorería.
+    const calc = calcularVencidasTesoreriaSocio(socio, anio, mesNum);
+    const hist = calc.hist;
+    const mesCerrado = hist.cerrado === true;
+    if (mesCerrado) hayMesCerrado = true; else hayMesAbierto = true;
+
+    const aRecuperar = hist.deudaAnterior || 0;                    // Horas del mes anterior sin recuperar
+    // Las horas que pasan a Tesorería se calculan CON EL MES CERRADO: son las
+    // "A Recuperar" que el socio no recuperó tras cubrir el objetivo del mes.
+    // Con el mes abierto todavía puede recuperarlas, así que no se imputa nada.
+    const vencidas = mesCerrado ? Math.max(0, calc.vencidas || 0) : 0;      // A Tesorería
+    const recuperadas = mesCerrado ? Math.max(0, calc.recuperadas || 0) : 0; // Lo que el socio recuperó en el mes
     const cobradoAntes = hist.tesoreriaAcumulada || 0;
     const cobradoEsteMes = hist.cerrado
       ? (hist.tesoreriaCobradaEnPeriodo || 0)
@@ -5414,22 +5506,30 @@ async function exportReporteTesoreriaPDF() {
       ? (hist.tesoreriaAcumuladaAlCierre || 0)
       : cobradoAntes + cobradoEsteMes;
 
-    // Mostrar tanto socios con Tesorería como quienes conservan horas A Recuperar.
-    if (aRecuperar <= 0 && totalTesoreria <= 0) return;
+    // Entran al reporte los socios con horas que pasan A Tesorería y los que ya
+    // registran Tesorería. Quien recuperó todo lo atrasado no figura en el reporte.
+    if (vencidas <= 0 && totalTesoreria <= 0) return;
+
+    totalARecuperar += aRecuperar;
+    totalRecuperadas += recuperadas;
+    totalVencidas += vencidas;
     totalCobradoAntes += cobradoAntes;
     totalCobradoMes += cobradoEsteMes;
     tableData.push([
       socio.id,
       socio.nombre,
       formatHours(Math.round(aRecuperar)),
+      mesCerrado ? formatHours(Math.round(recuperadas)) : '—',
+      mesCerrado ? formatHours(Math.round(vencidas)) : '—',
       formatHours(Math.round(cobradoAntes)),
-      formatHours(Math.round(cobradoEsteMes)),
       formatHours(Math.round(totalTesoreria))
     ]);
+    // Segunda hoja: únicamente los socios que pasan a Tesorería.
+    if (vencidas > 0) resumenData.push([socio.id, socio.nombre, formatHours(Math.round(vencidas))]);
   });
 
   if (tableData.length === 0) {
-    showToast(`No hay movimientos de Tesorería ni horas A Recuperar en ${mesNombre} ${anio}.`, "info");
+    showToast(`No hay horas de ${mesAnteriorTxt} que pasen a Tesorería ni Tesorería registrada en ${mesNombre} ${anio}.`, "info");
     return;
   }
 
@@ -5442,31 +5542,89 @@ async function exportReporteTesoreriaPDF() {
   doc.text("COVIMT 9 - Estado de Tesorería", 105, 20, { align: 'center' });
   doc.setFontSize(12);
   doc.setTextColor(40);
-  doc.text(`${mesNombre} ${anio}`, 105, 28, { align: 'center' });
+  const estadoMes = hayMesCerrado && !hayMesAbierto
+    ? ' · mes cerrado'
+    : (hayMesAbierto && !hayMesCerrado ? ' · mes abierto (sin horas a Tesorería hasta el cierre)' : ' · socios con mes cerrado y abierto');
+  doc.text(`${mesNombre} ${anio} horas de ${mesAnteriorTxt} no recuperadas${estadoMes}`, 105, 28, { align: 'center' });
 
   doc.autoTable({
-    head: [['ID', 'Socio Titular', 'A Recuperar', 'Cobrado antes', 'Cobrado este mes', 'Tesorería acumulada']],
+    head: [['ID', 'Socio Titular', 'A Recuperar', 'Recuperadas', 'A Tesorería', 'Cobrado antes', 'Tesorería acumulada']],
     body: tableData,
     startY: 35,
     theme: 'grid',
-    styles: { fontSize: 8.5 },
-    headStyles: { fillColor: [5, 150, 105] },
+    styles: { fontSize: 7.5, cellPadding: 1.2, valign: 'middle' },
+    headStyles: { fillColor: [5, 150, 105], halign: 'center' },
     columnStyles: {
-      0: { cellWidth: 13, halign: 'center' },
-      2: { halign: 'center' },
-      3: { halign: 'center' },
-      4: { halign: 'center', fontStyle: 'bold' },
-      5: { halign: 'center', fontStyle: 'bold' }
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 44 },
+      2: { cellWidth: 24, halign: 'center' },
+      3: { cellWidth: 24, halign: 'center' },
+      4: { cellWidth: 26, halign: 'center', fontStyle: 'bold' },
+      5: { cellWidth: 24, halign: 'center' },
+      6: { cellWidth: 28, halign: 'center', fontStyle: 'bold' }
     },
-    margin: { top: 30 }
+    margin: { top: 30, left: 14, right: 14 }
   });
 
-  const finalY = doc.lastAutoTable.finalY + 8;
-  doc.setFontSize(9.5);
+  // Si el cuadro de totales no entra en la página, se pasa a una nueva.
+  let finalY = doc.lastAutoTable.finalY + 8;
+  if (finalY + 45 > doc.internal.pageSize.getHeight()) { doc.addPage(); finalY = 20; }
+  doc.setFontSize(9);
   doc.setFont(undefined, 'bold');
-  doc.text(`Total cobrado antes del período: ${formatHours(Math.round(totalCobradoAntes))}`, 20, finalY);
-  doc.text(`Total cobrado durante el período: ${formatHours(Math.round(totalCobradoMes))}`, 20, finalY + 6);
-  doc.text(`Tesorería acumulada total: ${formatHours(Math.round(totalCobradoAntes + totalCobradoMes))}`, 20, finalY + 12);
+  doc.text(`Horas de ${mesAnteriorTxt} sin recuperar: ${formatHours(Math.round(totalARecuperar))}`, 14, finalY);
+  if (hayMesCerrado) {
+    doc.text(`Recuperadas en ${mesNombre}: ${formatHours(Math.round(totalRecuperadas))}`, 14, finalY + 5);
+    doc.text(`A Tesorería: ${formatHours(Math.round(totalVencidas))}`, 14, finalY + 10);
+  } else {
+    doc.text("Recuperadas y A Tesorería: se calculan con el mes cerrado.", 14, finalY + 5);
+  }
+  doc.text(`Total cobrado antes del período: ${formatHours(Math.round(totalCobradoAntes))}`, 14, finalY + 18);
+  doc.text(`Total cobrado durante el período: ${formatHours(Math.round(totalCobradoMes))}`, 14, finalY + 23);
+  doc.text(`Tesorería acumulada total: ${formatHours(Math.round(totalCobradoAntes + totalCobradoMes))}`, 14, finalY + 28);
+
+  // Nota con la regla aplicada (misma que el PDF mensual).
+  doc.setFontSize(7.5);
+  doc.setFont(undefined, 'normal');
+  const notaRegla = [];
+  if (hayMesCerrado) notaRegla.push(`Con el mes CERRADO: las horas de ${mesAnteriorTxt} que el socio no recuperó tras cubrir el objetivo de ${mesNombre} vencieron y pasan a Tesorería.`);
+  if (hayMesAbierto) notaRegla.push("Con el mes ABIERTO: las horas que pasan a Tesorería se calculan al cierre, porque hasta ese momento el socio puede recuperar lo atrasado; esas filas muestran — en Recuperadas y A Tesorería.");
+  doc.text(doc.splitTextToSize(notaRegla.join(" "), 182), 14, finalY + 36);
+
+  // --- Segunda hoja: resumen para Tesorería (sólo ID, socio y horas A Tesorería) ---
+  if (resumenData.length > 0) {
+    doc.addPage();
+    const logoResumen = document.getElementById('logo-coop');
+    if (logoResumen && logoResumen.complete && logoResumen.naturalWidth !== 0) {
+    try { doc.addImage(logoResumen, 'PNG', 20, 12, 15, 15); } catch(e) { console.error(e); }
+    }
+    doc.setFontSize(16);
+    doc.setTextColor(5, 150, 105);
+    doc.text("COVIMT 9 - Estado de Tesorería", 105, 20, { align: 'center' });
+    doc.setFontSize(12);
+    doc.setTextColor(40);
+    doc.text(`${mesNombre} ${anio} horas de ${mesAnteriorTxt} no recuperadas${estadoMes}`, 105, 28, { align: 'center' });
+    doc.autoTable({
+      head: [['ID', 'Socio Titular', 'A Tesorería']],
+      body: resumenData,
+      startY: 35,
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 1.5, valign: 'middle' },
+      headStyles: { fillColor: [5, 150, 105], halign: 'center' },
+      columnStyles: {
+        0: { cellWidth: 20, halign: 'center' },
+        1: { cellWidth: 122 },
+        2: { cellWidth: 40, halign: 'center', fontStyle: 'bold' }
+      },
+      margin: { top: 30, left: 14, right: 14 }
+    });
+    const yResumen = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'bold');
+    doc.text(`Total A Tesorería: ${formatHours(Math.round(totalVencidas))}`, 14, yResumen);
+    doc.setFontSize(7.5);
+    doc.setFont(undefined, 'normal');
+    doc.text(doc.splitTextToSize(notaRegla.join(" "), 182), 14, yResumen + 8);
+  }
 
   await guardarPDFConSelector(`COVIMT9_Tesoreria_${mesNum}_${anio}.pdf`, doc);
   showToast("Estado de Tesorería generado correctamente.", "success");
