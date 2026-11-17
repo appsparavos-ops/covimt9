@@ -1006,25 +1006,33 @@ async function registerIngreso() {
   const socioId = document.getElementById('ingreso-socio-filtered').value;
   const fecha = document.getElementById('ingreso-fecha').value;
 
-  // --- VERIFICACIÓN: Comisión sin deuda → mostrar cartel antes de fichar ---
+  // --- VERIFICACIÓN: Comisión con deuda pendiente → mostrar cartel si ya no hay deuda ---
   const socio = socios.find(s => String(s.id) === String(socioId));
   if (socio) {
     const comision = obtenerComisionAsignadaNucleo(socio);
-    const [anio, mes] = fecha.split('-');
-    const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
-    const tieneDeuda = (hist.deudaAnterior || 0) > 0;
+    if (comision) {
+      const [anio, mes] = fecha.split('-');
+      const hist = obtenerSaldoHistoricoAlMes(socio.id, anio, mes);
+      const deudaAnterior = hist.deudaAnterior || 0;
 
-    if (comision && !tieneDeuda) {
-      const msg = document.getElementById('msg-comision-sin-deuda');
-      if (msg) {
-        msg.textContent = `El socio ${socio.nombre} integra la comisión "${comision}" y no tiene deuda del mes anterior. Las horas trabajadas no serán computadas. ¿Desea continuar con el fichaje de ingreso?`;
-      }
-      const modal = document.getElementById('modal-comision-sin-deuda');
-      if (modal) {
-        modal.classList.remove('hidden');
-        // Guardar datos para reintentar tras confirmar
-        window._pendingIngreso = { socioId, fecha };
-        return; // Esperar confirmación del usuario
+      // Calcular cuánto de la deuda ya se recuperó con horas computadas este mes
+      const horasCampo = obtenerHorasRealizadasNucleo(socio.id, anio, mes);
+      const horasComputablesMes = horasCampo.computables; // ya es múltiplo de 4
+      const horasAplicadasADuda = Math.min(horasComputablesMes, deudaAnterior);
+      const deudaPendiente = Math.max(0, deudaAnterior - horasAplicadasADuda);
+
+      // Si ya no hay deuda pendiente, las horas trabajadas no se computarán → mostrar cartel
+      if (deudaPendiente === 0) {
+        const msg = document.getElementById('msg-comision-sin-deuda');
+        if (msg) {
+          msg.textContent = `Atención: Socio en Comisión. El socio ${socio.nombre} integra la comisión ${comision}. Las horas trabajadas no serán computadas. ¿Desea continuar con el fichaje de ingreso?.`;
+        }
+        const modal = document.getElementById('modal-comision-sin-deuda');
+        if (modal) {
+          modal.classList.remove('hidden');
+          window._pendingIngreso = { socioId, fecha };
+          return; // Esperar confirmación del usuario
+        }
       }
     }
   }
