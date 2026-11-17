@@ -1025,7 +1025,7 @@ async function registerIngreso() {
       if (deudaPendiente === 0) {
         const msg = document.getElementById('msg-comision-sin-deuda');
         if (msg) {
-          msg.textContent = `Atención: Socio en Comisión. El socio ${socio.nombre} integra la comisión ${comision}. Las horas trabajadas no serán computadas. ¿Desea continuar con el fichaje de ingreso?.`;
+          msg.textContent = `Atención: Socio en Comisión. El socio ${socio.nombre} integra el/la ${comision}. Las horas trabajadas no serán computadas. ¿Desea continuar con el fichaje de ingreso?.`;
         }
         const modal = document.getElementById('modal-comision-sin-deuda');
         if (modal) {
